@@ -1,0 +1,235 @@
+'use client'
+
+import { useState } from 'react'
+import { useAccount, useSignTypedData } from 'wagmi'
+import { parseUnits } from 'viem'
+import axios from 'axios'
+import { ethers } from 'ethers'
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+const HEDGE_REGISTRY_ADDRESS = process.env.NEXT_PUBLIC_HEDGE_REGISTRY_ADDRESS || ''
+
+interface HedgeExecutionProps {
+  riskDescription: string
+  market: any
+  amount: string
+  onComplete: () => void
+  onBack: () => void
+}
+
+export default function HedgeExecution({
+  riskDescription,
+  market,
+  amount,
+  onComplete,
+  onBack,
+}: HedgeExecutionProps) {
+  const { address } = useAccount()
+  const [step, setStep] = useState<'prepare' | 'sign' | 'submit' | 'record' | 'complete'>('prepare')
+  const [error, setError] = useState<string | null>(null)
+  const [tradeTxHash, setTradeTxHash] = useState<string | null>(null)
+  const [orderData, setOrderData] = useState<any>(null)
+
+  const { signTypedDataAsync } = useSignTypedData()
+
+  const handleExecute = async () => {
+    try {
+      setError(null)
+      setStep('prepare')
+
+      // Step 1: Get order data from backend
+      const orderResponse = await axios.post(`${API_BASE_URL}/api/execute-hedge`, {
+        marketId: market.marketId,
+        outcomeIndex: 0, // Yes outcome
+        usdcAmount: parseFloat(amount),
+        price: market.currentPrice || 0.5,
+      })
+
+      setOrderData(orderResponse.data.typedData)
+      setStep('sign')
+
+      // Step 2: Sign the order
+      const signature = await signTypedDataAsync(orderResponse.data.typedData)
+
+      setStep('submit')
+
+      // Step 3: Submit signed order
+      const submitResponse = await axios.post(`${API_BASE_URL}/api/submit-order`, {
+        signedOrder: {
+          ...orderResponse.data.typedData.message,
+          signature,
+        },
+      })
+
+      if (submitResponse.data.tradeTxHash) {
+        setTradeTxHash(submitResponse.data.tradeTxHash)
+        setStep('record')
+      } else {
+        throw new Error('No transaction hash received')
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to execute hedge')
+      console.error('Error executing hedge:', err)
+    }
+  }
+
+  const handleRecordOnChain = async () => {
+    try {
+      setError(null)
+
+      // Compute risk hash
+      const riskHash = ethers.keccak256(ethers.toUtf8Bytes(riskDescription))
+
+      // Call recordHedge on contract
+      const provider = new ethers.BrowserProvider((window as any).ethereum)
+      const signer = await provider.getSigner()
+
+      // ABI for recordHedge function
+      const abi = [
+        'function recordHedge(bytes32 riskHash, string calldata marketId, uint256 amount, string calldata tradeTxHash) external returns (uint256 receiptTokenId)',
+      ]
+
+      const contract = new ethers.Contract(HEDGE_REGISTRY_ADDRESS, abi, signer)
+
+      // Convert amount to USDC units (6 decimals)
+      const amountWei = parseUnits(amount, 6)
+
+      const tx = await contract.recordHedge(
+        riskHash,
+        market.marketId,
+        amountWei,
+        tradeTxHash
+      )
+
+      await tx.wait()
+      setStep('complete')
+      setTimeout(() => {
+        onComplete()
+      }, 2000)
+    } catch (err: any) {
+      setError(err.message || 'Failed to record hedge on-chain')
+      console.error('Error recording hedge:', err)
+    }
+  }
+
+  return (
+    <div className="max-w-3xl mx-auto">
+      <button
+        onClick={onBack}
+        className="text-blue-400 hover:text-blue-300 mb-6 flex items-center gap-2"
+      >
+        ← Back to Markets
+      </button>
+
+      <div className="bg-gray-800 rounded-lg p-8 shadow-lg">
+        <h2 className="text-2xl font-semibold text-white mb-6">Execute Hedge</h2>
+
+        {/* Market Summary */}
+        <div className="bg-gray-700 rounded-lg p-4 mb-6">
+          <h3 className="text-lg font-semibold text-white mb-2">{market.title}</h3>
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <span className="text-gray-400">Amount: </span>
+              <span className="text-white font-semibold">{amount} USDC</span>
+            </div>
+            <div>
+              <span className="text-gray-400">Outcome: </span>
+              <span className="text-white font-semibold">YES</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Steps */}
+        <div className="space-y-4 mb-6">
+          <div className={`flex items-center gap-3 ${step === 'prepare' ? 'text-blue-400' : 'text-gray-500'}`}>
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+              step === 'prepare' ? 'bg-blue-600' : 'bg-gray-700'
+            }`}>
+              1
+            </div>
+            <span>Prepare Order</span>
+          </div>
+
+          <div className={`flex items-center gap-3 ${step === 'sign' ? 'text-blue-400' : step === 'prepare' ? 'text-gray-500' : 'text-gray-400'}`}>
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+              step === 'sign' ? 'bg-blue-600' : step === 'prepare' ? 'bg-gray-700' : 'bg-green-600'
+            }`}>
+              2
+            </div>
+            <span>Sign Order</span>
+          </div>
+
+          <div className={`flex items-center gap-3 ${step === 'submit' ? 'text-blue-400' : ['prepare', 'sign'].includes(step) ? 'text-gray-500' : 'text-gray-400'}`}>
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+              step === 'submit' ? 'bg-blue-600' : ['prepare', 'sign'].includes(step) ? 'bg-gray-700' : 'bg-green-600'
+            }`}>
+              3
+            </div>
+            <span>Submit to Polymarket</span>
+          </div>
+
+          <div className={`flex items-center gap-3 ${step === 'record' ? 'text-blue-400' : ['prepare', 'sign', 'submit'].includes(step) ? 'text-gray-500' : 'text-gray-400'}`}>
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+              step === 'record' ? 'bg-blue-600' : ['prepare', 'sign', 'submit'].includes(step) ? 'bg-gray-700' : 'bg-green-600'
+            }`}>
+              4
+            </div>
+            <span>Record on Base</span>
+          </div>
+        </div>
+
+        {error && (
+          <div className="mb-6 p-4 bg-red-900/50 border border-red-700 rounded-lg text-red-200">
+            {error}
+          </div>
+        )}
+
+        {step === 'prepare' && (
+          <button
+            onClick={handleExecute}
+            className="w-full px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors"
+          >
+            Start Execution
+          </button>
+        )}
+
+        {step === 'sign' && (
+          <div className="text-center">
+            <p className="text-gray-400 mb-4">Please sign the order in your wallet...</p>
+          </div>
+        )}
+
+        {step === 'submit' && (
+          <div className="text-center">
+            <p className="text-gray-400 mb-4">Submitting order to Polymarket...</p>
+          </div>
+        )}
+
+        {step === 'record' && tradeTxHash && (
+          <div>
+            <div className="mb-4 p-4 bg-green-900/50 border border-green-700 rounded-lg">
+              <p className="text-green-200 mb-2">Trade executed successfully!</p>
+              <p className="text-sm text-gray-400">
+                Transaction: {tradeTxHash}
+              </p>
+            </div>
+            <button
+              onClick={handleRecordOnChain}
+              className="w-full px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors"
+            >
+              Record Hedge on Base
+            </button>
+          </div>
+        )}
+
+        {step === 'complete' && (
+          <div className="text-center p-6 bg-green-900/50 border border-green-700 rounded-lg">
+            <p className="text-green-200 text-lg font-semibold mb-2">✓ Hedge Complete!</p>
+            <p className="text-gray-400">Your hedge has been recorded and NFT receipt minted.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
