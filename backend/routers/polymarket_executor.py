@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from services.polymarket_executor import execute_order
+from services.polymarket import fetch_top_events
 
 router = APIRouter()
 
@@ -41,3 +42,15 @@ async def execute_order_endpoint(req: ExecuteOrderRequest):
         print(f"[api/execute-order] error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
+
+@router.get("/polymarket-top")
+async def get_polymarket_top(limit: int = 5):
+    """
+    Proxy endpoint to fetch top Polymarket events (volume ordered) via backend to avoid CORS.
+    """
+    try:
+        events = fetch_top_events(limit=limit)
+        return {"events": events, "count": len(events)}
+    except Exception as e:
+        print(f"[api/polymarket-top] error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch Polymarket events: {e}")
