@@ -116,8 +116,7 @@ export default function Sidebar({ currentView, onNavigate }: SidebarProps) {
       {/* Logo Area */}
       <div className="p-6 border-b border-gray-100">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-gradient-to-br from-hedge-green to-emerald-600 rounded-lg flex items-center justify-center text-white font-bold shadow-lg shadow-green-500/20">
-            H
+          <div className="w-8 h-8 bg-white rounded-none flex items-center justify-center shadow-sm border border-gray-200">
           </div>
           <h1 className="text-xl font-bold text-gray-900 tracking-tight">Hedger</h1>
         </div>

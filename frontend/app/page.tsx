@@ -107,8 +107,8 @@ export default function Home() {
                 exit={{ opacity: 0, y: -20 }}
                 className="flex flex-col items-center justify-center py-32 text-center"
               >
-                <div className="w-20 h-20 bg-green-100 rounded-3xl flex items-center justify-center mb-6 shadow-xl shadow-green-500/10 animate-float">
-                  <div className="w-10 h-10 bg-hedge-green rounded-xl" />
+                <div className="w-20 h-20 bg-gray-100 flex items-center justify-center mb-6 shadow-xl animate-float">
+                  <div className="w-10 h-10 bg-white shadow-sm" />
                 </div>
                 <h2 className="text-3xl font-bold text-gray-900 mb-4">
                   Institutional Grade Risk Hedging
