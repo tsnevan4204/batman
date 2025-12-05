@@ -3,9 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 from dotenv import load_dotenv
 
-from routers import match_risk, execute_hedge
-
+# Load environment variables FIRST, before any imports that need them
 load_dotenv()
+
+from routers import match_risk, execute_hedge
 
 app = FastAPI(title="Hedger API", version="1.0.0")
 

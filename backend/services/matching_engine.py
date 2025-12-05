@@ -1,14 +1,26 @@
 import os
 import numpy as np
-from typing import List, Dict
+from typing import List, Dict, Optional
 from openai import OpenAI
 from services.polymarket import fetch_markets, load_markets, build_market_text
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Lazy initialization of OpenAI client
+_client: Optional[OpenAI] = None
+
+def get_openai_client() -> OpenAI:
+    """Get or create OpenAI client instance."""
+    global _client
+    if _client is None:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY environment variable not set")
+        _client = OpenAI(api_key=api_key)
+    return _client
 
 def embed_text(text: str) -> List[float]:
     """Generate embedding for a text using OpenAI."""
     try:
+        client = get_openai_client()
         response = client.embeddings.create(
             model="text-embedding-3-small",
             input=text
@@ -117,6 +129,7 @@ Example response: [2, 5, 1, 8, 3]
 """
     
     try:
+        client = get_openai_client()
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[

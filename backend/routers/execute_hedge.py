@@ -2,9 +2,6 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from services.polymarket import get_orderbook, submit_order
-from eth_account import Account
-from eth_account.messages import encode_defunct
-import json
 from datetime import datetime, timezone
 
 router = APIRouter()

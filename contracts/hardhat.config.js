@@ -10,14 +10,7 @@ module.exports = {
         enabled: true,
         runs: 200,
       },
-      viaIR: true, // Enable IR-based code generator to handle stack too deep errors
     },
-  },
-  paths: {
-    sources: "./contracts",
-    tests: "./test",
-    cache: "./cache",
-    artifacts: "./artifacts",
   },
   networks: {
     base: {

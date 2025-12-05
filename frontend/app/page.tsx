@@ -1,7 +1,5 @@
-'use client'
-
 import { useState } from 'react'
-import { useAccount, useConnectModal } from '@rainbow-me/rainbowkit'
+import { useAccount } from 'wagmi'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import RiskInput from '@/components/RiskInput'
 import MatchedMarkets from '@/components/MatchedMarkets'
