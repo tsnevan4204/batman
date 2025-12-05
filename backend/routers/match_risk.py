@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from services.matching_engine import match_risk
+from services.matching_engine import hedge_risk
 from services.polymarket import load_markets
 
 router = APIRouter()
@@ -17,13 +17,13 @@ class MarketResponse(BaseModel):
     currentPrice: float | None
     liquidity: float | None
 
-@router.post("/match-risk")
-async def match_risk_endpoint(request: RiskRequest):
+@router.post("/hedge-risk")
+async def hedge_risk_endpoint(request: RiskRequest):
     """
-    Match a business risk description to relevant Polymarket markets.
+    Match a business risk description to relevant Polymarket markets using search-based flow.
     """
     print("\n" + "="*80)
-    print("[API] ===== MATCH-RISK ENDPOINT CALLED =====")
+    print("[API] ===== HEDGE-RISK ENDPOINT CALLED =====")
     print(f"[API] Risk description length: {len(request.risk_description)} chars")
     print(f"[API] Risk description: {request.risk_description[:200]}...")
     print("="*80)
@@ -33,8 +33,8 @@ async def match_risk_endpoint(request: RiskRequest):
             print("[API] ERROR: Empty risk description")
             raise HTTPException(status_code=400, detail="Risk description cannot be empty")
         
-        print("[API] Calling match_risk function...")
-        matched_markets = match_risk(request.risk_description, top_k=5)
+        print("[API] Calling hedge_risk function...")
+        matched_markets = hedge_risk(request.risk_description, top_k=10000)
         
         print(f"[API] match_risk returned {len(matched_markets)} markets")
         
@@ -54,9 +54,17 @@ async def match_risk_endpoint(request: RiskRequest):
                 "title": market.get("title", "Unknown"),
                 "description": market.get("description", "")[:500],  # Truncate long descriptions
                 "category": market.get("category", ""),
-                "similarity": round(market.get("similarity", 0), 4),
-                "currentPrice": market.get("currentPrice"),
-                "liquidity": market.get("liquidity")
+                "eventTitle": market.get("eventTitle"),
+                "eventDescription": market.get("eventDescription"),
+                "startDate": market.get("startDate"),
+                "endDate": market.get("endDate"),
+                "side": market.get("side"),
+                "clobTokenId": market.get("clobTokenId"),
+                "clobTokenIds": market.get("clobTokenIds"),
+                "outcomes": market.get("outcomes"),
+                "outcomePrices": market.get("outcomePrices"),
+                "liquidity": market.get("liquidity"),
+                "volume": market.get("volume"),
             }
             formatted_markets.append(formatted)
             print(f"[API] Formatted market {i+1}: {formatted['title'][:60]}...")
@@ -76,6 +84,14 @@ async def match_risk_endpoint(request: RiskRequest):
         print(f"[API] Traceback: {traceback.format_exc()}")
         print("="*80 + "\n")
         raise HTTPException(status_code=500, detail=f"Error matching risk: {str(e)}")
+
+
+@router.post("/match-risk")
+async def match_risk_endpoint(request: RiskRequest):
+    """
+    Backward-compatible alias to hedge-risk.
+    """
+    return await hedge_risk_endpoint(request)
 
 @router.get("/markets")
 async def get_markets():

@@ -1,7 +1,0 @@
-{
-  "dependencies": {
-    "@coinbase/onchainkit": "^1.1.2",
-    "framer-motion": "^12.23.25",
-    "lucide-react": "^0.556.0"
-  }
-}

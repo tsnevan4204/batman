@@ -9,6 +9,26 @@ from typing import List, Dict, Optional
 GAMMA_API_BASE = "https://gamma-api.polymarket.com"
 CLOB_API_BASE = "https://clob.polymarket.com"
 
+def search_events(query: str, limit_per_type: int = 200) -> Dict:
+    """
+    Call Polymarket public-search to fetch events and markets for a query.
+    """
+    url = f"{GAMMA_API_BASE}/public-search"
+    params = {"q": query, "limit_per_type": limit_per_type}
+    print(f"[POLYMARKET] Searching events with query='{query}' limit={limit_per_type}")
+    try:
+        resp = requests.get(url, params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        events_count = len(data.get("events", [])) if isinstance(data, dict) else 0
+        print(f"[POLYMARKET] /public-search returned {events_count} events")
+        return data
+    except Exception as e:
+        print(f"[POLYMARKET] ERROR during /public-search: {e}")
+        import traceback
+        print(f"[POLYMARKET] Traceback: {traceback.format_exc()}")
+        return {"events": [], "pagination": {"hasMore": False, "totalResults": 0}}
+
 def fetch_markets() -> List[Dict]:
     """
     Fetch all active markets from Polymarket Gamma API (and optionally merge with CLOB).
