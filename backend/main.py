@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 # Load environment variables FIRST, before any imports that need them
 load_dotenv()
 
-from routers import match_risk, execute_hedge
+from routers import match_risk, execute_hedge, polymarket_executor
 
 app = FastAPI(title="Hedger API", version="1.0.0")
 
@@ -22,6 +22,7 @@ app.add_middleware(
 # Include routers
 app.include_router(match_risk.router, prefix="/api", tags=["matching"])
 app.include_router(execute_hedge.router, prefix="/api", tags=["execution"])
+app.include_router(polymarket_executor.router, prefix="/api", tags=["polymarket"])
 
 @app.get("/")
 async def root():

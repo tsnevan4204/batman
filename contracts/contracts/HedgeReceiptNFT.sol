@@ -18,6 +18,10 @@ contract HedgeReceiptNFT is ERC721URIStorage, Ownable {
         uint256 amount;
         uint256 timestamp;
         uint256 hedgeId;
+        bool resolved;
+        string resolvedOutcome;
+        uint256 settlementPrice;
+        uint256 settlementTimestamp;
     }
     
     mapping(uint256 => ReceiptMetadata) public receiptData;
@@ -51,7 +55,11 @@ contract HedgeReceiptNFT is ERC721URIStorage, Ownable {
             marketId: marketId,
             amount: amount,
             timestamp: timestamp,
-            hedgeId: hedgeId
+            hedgeId: hedgeId,
+            resolved: false,
+            resolvedOutcome: "",
+            settlementPrice: 0,
+            settlementTimestamp: 0
         });
         
         _safeMint(to, tokenId);
@@ -60,6 +68,25 @@ contract HedgeReceiptNFT is ERC721URIStorage, Ownable {
         emit ReceiptMinted(to, tokenId, hedgeId);
         
         return tokenId;
+    }
+
+    /**
+     * @notice Update settlement/resolution details for an existing receipt.
+     * @dev Restricted to owner (could be backend-controlled or registry-controlled).
+     */
+    function updateSettlement(
+        uint256 tokenId,
+        string calldata resolvedOutcome,
+        uint256 settlementPrice,
+        uint256 settlementTimestamp
+    ) external onlyOwner {
+        require(_exists(tokenId), "Token does not exist");
+        ReceiptMetadata storage data = receiptData[tokenId];
+        data.resolved = true;
+        data.resolvedOutcome = resolvedOutcome;
+        data.settlementPrice = settlementPrice;
+        data.settlementTimestamp = settlementTimestamp;
+        _setTokenURI(tokenId, _generateTokenURI(tokenId));
     }
 
     function _generateTokenURI(uint256 tokenId) internal view returns (string memory) {
@@ -71,7 +98,11 @@ contract HedgeReceiptNFT is ERC721URIStorage, Ownable {
             '"attributes":[',
             '{"trait_type":"Market ID","value":"', data.marketId, '"},',
             '{"trait_type":"Amount","value":"', _formatAmount(data.amount), '"},',
-            '{"trait_type":"Timestamp","value":"', data.timestamp.toString(), '"}',
+            '{"trait_type":"Timestamp","value":"', data.timestamp.toString(), '"},',
+            '{"trait_type":"Resolved","value":"', data.resolved ? "true" : "false", '"},',
+            '{"trait_type":"Resolved Outcome","value":"', data.resolvedOutcome, '"},',
+            '{"trait_type":"Settlement Price","value":"', _formatAmount(data.settlementPrice), '"},',
+            '{"trait_type":"Settlement Time","value":"', data.settlementTimestamp.toString(), '"}',
             '],',
             '"image":"data:image/svg+xml;base64,', _generateSVG(tokenId, data), '"',
             '}'
