@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
-from services.polymarket import get_orderbook, submit_order
+from services.polymarket import get_orderbook, submit_order, get_token_id
 from datetime import datetime, timezone
 
 router = APIRouter()
@@ -24,6 +24,7 @@ def create_eip712_order(
     outcome_index: int,
     amount: float,
     price: Optional[float] = None,
+    token_id: Optional[str] = None,
     user_address: str = "0x0000000000000000000000000000000000000000"
 ) -> dict:
     """
@@ -77,7 +78,8 @@ def create_eip712_order(
             "outcome": "YES" if outcome_index == 0 else "NO",
             "amount": amount_wei,
             "price": int((price or 0.5) * 1e18),  # Price in 18 decimals
-            "timestamp": timestamp
+            "timestamp": timestamp,
+            **({"token_id": token_id} if token_id else {})
         }
     }
     
@@ -98,16 +100,25 @@ async def execute_hedge_endpoint(request: ExecuteHedgeRequest):
                 # This is simplified - actual implementation should parse orderbook properly
                 request.price = 0.5  # Default to 50% if orderbook parsing fails
         
+        # Look up token_id for this market and outcome
+        print("[EXECUTE_HEDGE] Looking up token_id...")
+        token_id = get_token_id(request.marketId, request.outcomeIndex)
+        
+        if not token_id:
+            print("[EXECUTE_HEDGE] WARNING: Could not find token_id, order may fail")
+        
         # Create EIP-712 order
         typed_data = create_eip712_order(
             market_id=request.marketId,
             outcome_index=request.outcomeIndex,
             amount=request.usdcAmount,
-            price=request.price
+            price=request.price,
+            token_id=token_id
         )
         
         return {
             "typedData": typed_data,
+            "tokenId": token_id,
             "message": "Sign this order with your wallet to execute the hedge"
         }
     except Exception as e:

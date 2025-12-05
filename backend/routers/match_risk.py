@@ -22,36 +22,59 @@ async def match_risk_endpoint(request: RiskRequest):
     """
     Match a business risk description to relevant Polymarket markets.
     """
+    print("\n" + "="*80)
+    print("[API] ===== MATCH-RISK ENDPOINT CALLED =====")
+    print(f"[API] Risk description length: {len(request.risk_description)} chars")
+    print(f"[API] Risk description: {request.risk_description[:200]}...")
+    print("="*80)
+    
     try:
         if not request.risk_description or len(request.risk_description.strip()) == 0:
+            print("[API] ERROR: Empty risk description")
             raise HTTPException(status_code=400, detail="Risk description cannot be empty")
         
+        print("[API] Calling match_risk function...")
         matched_markets = match_risk(request.risk_description, top_k=5)
         
+        print(f"[API] match_risk returned {len(matched_markets)} markets")
+        
         if not matched_markets:
+            print("[API] No matches found, returning empty result")
             return {
                 "matches": [],
                 "message": "No matching markets found. Try refining your risk description."
             }
         
         # Format response (exclude rawMarket)
+        print("[API] Formatting response...")
         formatted_markets = []
-        for market in matched_markets:
-            formatted_markets.append({
-                "marketId": market["marketId"],
-                "title": market["title"],
-                "description": market["description"],
+        for i, market in enumerate(matched_markets):
+            formatted = {
+                "marketId": market.get("marketId", ""),
+                "title": market.get("title", "Unknown"),
+                "description": market.get("description", "")[:500],  # Truncate long descriptions
                 "category": market.get("category", ""),
-                "similarity": round(market["similarity"], 4),
+                "similarity": round(market.get("similarity", 0), 4),
                 "currentPrice": market.get("currentPrice"),
                 "liquidity": market.get("liquidity")
-            })
+            }
+            formatted_markets.append(formatted)
+            print(f"[API] Formatted market {i+1}: {formatted['title'][:60]}...")
+        
+        print(f"[API] Returning {len(formatted_markets)} formatted markets")
+        print("="*80 + "\n")
         
         return {
             "matches": formatted_markets,
             "count": len(formatted_markets)
         }
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"[API] ERROR in match_risk_endpoint: {e}")
+        import traceback
+        print(f"[API] Traceback: {traceback.format_exc()}")
+        print("="*80 + "\n")
         raise HTTPException(status_code=500, detail=f"Error matching risk: {str(e)}")
 
 @router.get("/markets")
