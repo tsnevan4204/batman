@@ -1,7 +1,7 @@
 import requests
 import json
 import os
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union
 
 # Note: Polymarket API endpoints may need adjustment based on actual API documentation
 # Check https://docs.polymarket.com/ for the latest API structure
@@ -9,13 +9,13 @@ from typing import List, Dict, Optional
 GAMMA_API_BASE = "https://gamma-api.polymarket.com"
 CLOB_API_BASE = "https://clob.polymarket.com"
 
-def fetch_top_events(limit: int = 5, active: bool | None = True, closed: bool | None = False, order: str = "volume:desc") -> List[Dict]:
+def fetch_top_events(limit: int = 5, active: Optional[bool] = True, closed: Optional[bool] = False, order: str = "volume:desc") -> List[Dict]:
     """
     Fetch top Polymarket events from Gamma API. Used by the backend proxy to avoid
     client-side CORS issues.
     """
     url = f"{GAMMA_API_BASE}/events"
-    params: Dict[str, str | int] = {"limit": limit, "order": order}
+    params: Dict[str, Union[str, int]] = {"limit": limit, "order": order}
     if active is not None:
         params["active"] = str(active).lower()
     if closed is not None:

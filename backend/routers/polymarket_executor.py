@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from typing import Optional
 
 from services.polymarket_executor import execute_order
 from services.polymarket import fetch_top_events
@@ -13,10 +14,10 @@ class ExecuteOrderRequest(BaseModel):
     side: str  # "buy" | "sell"
     size: float
     limitPrice: float
-    ttlSeconds: int | None = None
-    maxSlippageBps: int | None = None
-    dryRun: bool | None = None
-    tokenId: str | None = None
+    ttlSeconds: Optional[int] = None
+    maxSlippageBps: Optional[int] = None
+    dryRun: Optional[bool] = None
+    tokenId: Optional[str] = None
 
 
 @router.post("/execute-order")

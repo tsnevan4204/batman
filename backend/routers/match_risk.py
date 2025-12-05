@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from typing import Optional
 from services.matching_engine import hedge_risk
 from services.polymarket import load_markets
 
@@ -14,8 +15,8 @@ class MarketResponse(BaseModel):
     description: str
     category: str
     similarity: float
-    currentPrice: float | None
-    liquidity: float | None
+    currentPrice: Optional[float]
+    liquidity: Optional[float]
 
 @router.post("/hedge-risk")
 async def hedge_risk_endpoint(request: RiskRequest):

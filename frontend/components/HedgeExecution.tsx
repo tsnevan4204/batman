@@ -1,14 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { parseUnits } from 'viem'
 import axios from 'axios'
 import { ethers } from 'ethers'
 import { Loader2, CheckCircle, Shield } from 'lucide-react'
 import { HedgePlan, HedgeLeg } from './StrategyModal'
+import { useWeb3 } from '@/contexts/Web3Context'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-const HEDGE_REGISTRY_ADDRESS = process.env.NEXT_PUBLIC_HEDGE_REGISTRY_ADDRESS || ''
 
 interface HedgeExecutionProps {
   riskDescription: string
@@ -17,7 +16,7 @@ interface HedgeExecutionProps {
   onBack: () => void
 }
 
-type Step = 'prepare' | 'submit' | 'record' | 'recording' | 'complete'
+type Step = 'prepare' | 'submit' | 'recording' | 'complete' | 'error'
 
 export default function HedgeExecution({
   riskDescription,
@@ -25,6 +24,7 @@ export default function HedgeExecution({
   onComplete,
   onBack,
 }: HedgeExecutionProps) {
+  const { recordHedgeReceipt } = useWeb3()
   const [step, setStep] = useState<Step>('prepare')
   const [error, setError] = useState<string | null>(null)
   const [tradeTxHashes, setTradeTxHashes] = useState<string[]>([])
@@ -59,70 +59,60 @@ export default function HedgeExecution({
   }
 
   const handleExecute = async () => {
-    try {
-      setError(null)
-      setStep('submit')
-      setIsSubmitting(true)
-      const txs: string[] = []
+    if (isSubmitting || isRecording) return
 
-      for (const leg of plan.legs) {
+    setError(null)
+    setStep('submit')
+    setIsSubmitting(true)
+    const txs: string[] = []
+
+    for (const leg of plan.legs) {
+      try {
         const { resp, tx } = await executeLeg(leg)
         if (tx) {
           txs.push(tx)
         } else if (resp?.response?.dryRun) {
           txs.push('dry-run')
+        } else {
+          txs.push('trade-failed')
         }
+      } catch (err: any) {
+        console.error('Error executing leg, continuing to mint receipt:', err)
+        setError((prev) => prev ?? 'Some legs failed to execute; minting receipt anyway.')
+        txs.push('trade-failed')
       }
-
-      setTradeTxHashes(txs)
-      setStep('record')
-    } catch (err: any) {
-      const detail =
-        err?.response?.data?.detail ||
-        err?.response?.data?.message ||
-        err?.message ||
-        'Failed to execute hedge'
-      setError(detail)
-      console.error('Error executing hedge:', err)
-      setStep('prepare')
-    } finally {
-      setIsSubmitting(false)
     }
+
+    if (txs.length === 0) {
+      txs.push('trade-failed')
+    }
+
+    setTradeTxHashes(txs)
+    await handleRecordOnChain(txs)
+    setIsSubmitting(false)
   }
 
-  const handleRecordOnChain = async () => {
+  const handleRecordOnChain = async (txs: string[]) => {
     if (isRecording) return
-    
+
     try {
       setError(null)
       setIsRecording(true)
       setStep('recording')
 
-      const riskHash = ethers.keccak256(ethers.toUtf8Bytes(riskDescription))
-      const provider = new ethers.BrowserProvider((window as any).ethereum)
-      const signer = await provider.getSigner()
+      const primaryMarketId = plan.legs[0]?.marketId || 'unknown-market'
+      const combinedTxHash = txs.length > 0 ? txs.join(',') : 'trade-failed'
 
-      const abi = [
-        'function recordHedge(bytes32 riskHash, string calldata marketId, uint256 amount, string calldata tradeTxHash) external returns (uint256 receiptTokenId)',
-      ]
+      const { txHash } = await recordHedgeReceipt({
+        riskDescription,
+        marketId: primaryMarketId,
+        amount: plan.totalCost.toFixed(2),
+        tradeTxHash: combinedTxHash,
+        bridgeTxHash: '',
+        bridgeMessageHash: ethers.ZeroHash,
+      })
 
-      const contract = new ethers.Contract(HEDGE_REGISTRY_ADDRESS, abi, signer)
-      const totalCost = plan.totalCost.toFixed(2)
-      const amountWei = parseUnits(totalCost, 6)
-
-      const primaryMarketId = plan.legs[0]?.marketId || ''
-      const primaryTx = tradeTxHashes[0] || ''
-
-      const tx = await contract.recordHedge(
-        riskHash,
-        primaryMarketId,
-        amountWei,
-        primaryTx
-      )
-
-      setRecordTxHash(tx.hash)
-      
-      await tx.wait()
+      setRecordTxHash(txHash)
       setStep('complete')
       setTimeout(() => {
         onComplete()
@@ -130,7 +120,7 @@ export default function HedgeExecution({
     } catch (err: any) {
       setError(err.message || 'Failed to record hedge on-chain')
       console.error('Error recording hedge:', err)
-      setStep('record')
+      setStep('error')
     } finally {
       setIsRecording(false)
     }
@@ -197,33 +187,39 @@ export default function HedgeExecution({
 
         {/* Steps */}
         <div className="space-y-4 mb-6">
-          <div className={`flex items-center gap-3 ${step === 'prepare' ? 'text-blue-600 font-medium' : 'text-gray-500'}`}>
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold ${
-              step === 'prepare' ? 'bg-blue-600' : 'bg-green-600'
-            }`}>
-              {step === 'prepare' ? '1' : <CheckCircle className="w-5 h-5" />}
-            </div>
-            <span>Prepare Orders</span>
-          </div>
+          {[
+            { key: 'prepare', label: 'Prepare Orders' },
+            { key: 'submit', label: 'Submit to Polymarket' },
+            { key: 'recording', label: 'Record on Base (Sponsored)' },
+          ].map((s, idx) => {
+            const isActive =
+              (s.key === 'prepare' && step === 'prepare') ||
+              (s.key === 'submit' && step === 'submit') ||
+              (s.key === 'recording' && ['recording', 'complete'].includes(step))
+            const isComplete =
+              (s.key === 'prepare' && step !== 'prepare') ||
+              (s.key === 'submit' && ['recording', 'complete'].includes(step)) ||
+              (s.key === 'recording' && step === 'complete')
+            const circleClass = isActive ? 'bg-blue-600' : isComplete ? 'bg-green-600' : 'bg-gray-300'
+            const textClass = isActive ? 'text-blue-600 font-medium' : isComplete ? 'text-gray-500' : 'text-gray-400'
+            const icon =
+              isComplete ? (
+                <CheckCircle className="w-5 h-5" />
+              ) : s.key === 'recording' && step === 'recording' ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                idx + 1
+              )
 
-          <div className={`flex items-center gap-3 ${step === 'submit' ? 'text-blue-600 font-medium' : ['prepare'].includes(step) ? 'text-gray-400' : 'text-gray-500'}`}>
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold ${
-              step === 'submit' ? 'bg-blue-600' : ['prepare'].includes(step) ? 'bg-gray-300' : 'bg-green-600'
-            }`}>
-              {['prepare', 'submit'].includes(step) ? '2' : <CheckCircle className="w-5 h-5" />}
-            </div>
-            <span>Submit to Polymarket</span>
-          </div>
-
-          <div className={`flex items-center gap-3 ${['record', 'recording'].includes(step) ? 'text-blue-600 font-medium' : ['prepare', 'submit'].includes(step) ? 'text-gray-400' : 'text-gray-500'}`}>
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold ${
-              ['record', 'recording'].includes(step) ? 'bg-blue-600' : ['prepare', 'submit'].includes(step) ? 'bg-gray-300' : 'bg-green-600'
-            }`}>
-              {step === 'recording' ? <Loader2 className="w-5 h-5 animate-spin" /> : 
-               step === 'complete' ? <CheckCircle className="w-5 h-5" /> : '3'}
-            </div>
-            <span>Record on Base (Sponsored)</span>
-          </div>
+            return (
+              <div key={s.key} className={`flex items-center gap-3 ${textClass}`}>
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold ${circleClass}`}>
+                  {icon}
+                </div>
+                <span>{s.label}</span>
+              </div>
+            )
+          })}
         </div>
 
         {error && (
@@ -249,40 +245,21 @@ export default function HedgeExecution({
           </div>
         )}
 
-        {step === 'record' && tradeTxHashes.length > 0 && (
-          <div>
-            <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-              <p className="text-green-800 font-medium mb-2">Orders executed!</p>
-              <div className="text-sm text-green-700 space-y-1">
+        {step === 'recording' && (
+          <div className="text-center p-8 bg-blue-50 rounded-lg border border-blue-200">
+            <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-blue-600" />
+            <p className="text-blue-800 font-medium mb-2">Recording hedge on Base...</p>
+            <p className="text-blue-600 text-sm">Gas is being sponsored by Coinbase Paymaster</p>
+            {tradeTxHashes.length > 0 && (
+              <div className="mt-4 text-left text-xs bg-white border border-blue-100 rounded p-3 text-blue-700 max-h-32 overflow-y-auto">
+                <div className="font-semibold mb-1">Submitted trades</div>
                 {tradeTxHashes.map((tx, idx) => (
                   <div key={idx} className="break-all">
                     Leg {idx + 1}: {tx}
                   </div>
                 ))}
               </div>
-            </div>
-            <button
-              onClick={handleRecordOnChain}
-              disabled={isRecording}
-              className="w-full px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
-            >
-              {isRecording ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Recording...
-                </>
-              ) : (
-                'Record Hedge on Base (Gas Free)'
-              )}
-            </button>
-          </div>
-        )}
-
-        {step === 'recording' && (
-          <div className="text-center p-8 bg-blue-50 rounded-lg border border-blue-200">
-            <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-blue-600" />
-            <p className="text-blue-800 font-medium mb-2">Recording hedge on Base...</p>
-            <p className="text-blue-600 text-sm">Gas is being sponsored by Coinbase Paymaster</p>
+            )}
             {recordTxHash && (
               <a
                 href={`https://sepolia.basescan.org/tx/${recordTxHash}`}
@@ -301,6 +278,16 @@ export default function HedgeExecution({
             <CheckCircle className="w-12 h-12 text-green-600 mx-auto mb-4" />
             <p className="text-green-800 text-lg font-bold mb-2">Hedge Complete!</p>
             <p className="text-green-600 mb-4">Your hedge has been recorded and NFT receipt minted.</p>
+            {tradeTxHashes.length > 0 && (
+              <div className="mb-4 text-left text-xs bg-white border border-green-100 rounded p-3 text-green-800 max-h-32 overflow-y-auto">
+                <div className="font-semibold mb-1">Submitted trades</div>
+                {tradeTxHashes.map((tx, idx) => (
+                  <div key={idx} className="break-all">
+                    Leg {idx + 1}: {tx}
+                  </div>
+                ))}
+              </div>
+            )}
             {recordTxHash && (
               <a
                 href={`https://sepolia.basescan.org/tx/${recordTxHash}`}

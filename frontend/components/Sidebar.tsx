@@ -15,9 +15,9 @@ import {
 import { useAccount } from 'wagmi'
 import { ethers } from 'ethers'
 import axios from 'axios'
+import { HEDGE_REGISTRY_ADDRESS } from '@/constants/addresses'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-const HEDGE_REGISTRY_ADDRESS = process.env.NEXT_PUBLIC_HEDGE_REGISTRY_ADDRESS || ''
 const POLYMARKET_TOP_API = `${API_BASE_URL}/api/polymarket-top`
 
 interface SidebarProps {
@@ -36,7 +36,15 @@ export default function Sidebar({ currentView, onNavigate }: SidebarProps) {
     if (address && HEDGE_REGISTRY_ADDRESS) {
       const fetchRecent = async () => {
         try {
-          const provider = new ethers.BrowserProvider((window as any).ethereum)
+          const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL || 'https://sepolia.base.org'
+          const provider = new ethers.JsonRpcProvider(rpcUrl)
+
+          const code = await provider.getCode(HEDGE_REGISTRY_ADDRESS)
+          if (!code || code === '0x') {
+            console.error('HedgeRegistry address might be wrong or not deployed on this network.')
+            setRecentHedges([])
+            return
+          }
           const abi = [
              'function getUserHedges(address user) external view returns (uint256[] memory)',
              'function getHedge(uint256 hedgeId) external view returns (tuple(address user, bytes32 riskHash, string marketId, uint256 amount, string tradeTxHash, uint256 timestamp, uint256 receiptTokenId))'

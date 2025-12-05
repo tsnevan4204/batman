@@ -6,6 +6,7 @@ import { baseSepolia } from 'wagmi/chains';
 import { WagmiProvider, createConfig, http } from 'wagmi';
 import { coinbaseWallet } from 'wagmi/connectors';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Web3Provider } from '@/contexts/Web3Context';
 
 const wagmiConfig = createConfig({
   chains: [baseSepolia],
@@ -36,7 +37,7 @@ export function Providers(props: { children: ReactNode }) {
             paymaster: process.env.NEXT_PUBLIC_PAYMASTER_RPC_URL,
           }}
         >
-          {props.children}
+          <Web3Provider>{props.children}</Web3Provider>
         </OnchainKitProvider>
       </QueryClientProvider>
     </WagmiProvider>

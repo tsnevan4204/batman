@@ -6,8 +6,7 @@ import { ethers, formatUnits } from 'ethers'
 import PortfolioMetrics from './PortfolioMetrics'
 import PortfolioCharts from './PortfolioCharts'
 import { ExternalLink, Clock, Trophy, XCircle, RefreshCw, Database } from 'lucide-react'
-
-const HEDGE_REGISTRY_ADDRESS = process.env.NEXT_PUBLIC_HEDGE_REGISTRY_ADDRESS || ''
+import { HEDGE_REGISTRY_ADDRESS } from '@/constants/addresses'
 
 interface Hedge {
   hedgeId: number
@@ -59,7 +58,15 @@ export default function Portfolio() {
       setError(null)
       
       // Fetch from HedgeRegistry contract on Base Sepolia
-      const provider = new ethers.BrowserProvider((window as any).ethereum)
+      const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL || 'https://sepolia.base.org'
+      const provider = new ethers.JsonRpcProvider(rpcUrl)
+      const code = await provider.getCode(HEDGE_REGISTRY_ADDRESS)
+      if (!code || code === '0x') {
+        setError('HedgeRegistry address might be wrong or not deployed on this network.')
+        setLoading(false)
+        setRefreshing(false)
+        return
+      }
       
       const abi = [
         'function getUserHedges(address user) external view returns (uint256[] memory)',
@@ -73,10 +80,15 @@ export default function Portfolio() {
       try {
         const totalCount = await contract.getHedgeCount()
         setTotalHedgeCount(Number(totalCount))
-      } catch (e) {
+      } catch (e: any) {
         console.log('getHedgeCount not available:', e)
+        setTotalHedgeCount(0)
+        setError('HedgeRegistry address might be wrong or not deployed on this network.')
+        setLoading(false)
+        setRefreshing(false)
+        return
       }
-      
+
       // Get user's hedges
       const hedgeIds = await contract.getUserHedges(address)
       
