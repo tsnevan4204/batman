@@ -456,7 +456,11 @@ def llm_select_markets(risk_description: str, markets: List[Dict], top_k: int = 
             if side_index >= len(clob_ids):
                 continue
 
-            prices = _parse_outcome_prices(market.get("outcomePrices"))
+            prices = _parse_outcome_prices(
+                market.get("outcomePrices")
+                or market.get("example_prices")
+                or market.get("examplePrices")
+            )
             price_yes = prices[0] if len(prices) > 0 else None
             price_no = prices[1] if len(prices) > 1 else None
 

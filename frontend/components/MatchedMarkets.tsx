@@ -199,7 +199,7 @@ export default function MatchedMarkets({
                         <div className="flex flex-col">
                           <span className="text-gray-400 text-xs uppercase font-bold">Current Price</span>
                           <span className="text-gray-900 font-bold text-lg">
-                            ${(market.hedgePrice * 100).toFixed(4)}¢ ({market.side || 'Yes'})
+                            ${Number(market.hedgePrice || 0).toFixed(4)} ({market.side || 'Yes'})
                           </span>
                         </div>
                       )}

@@ -37,7 +37,7 @@ export default function HedgeExecution({
     const shares = limitPrice > 0 ? leg.cost / limitPrice : 0
     const outcomeIndex = leg.side === 'Yes' ? 0 : 1
 
-    const resp = await axios.post(`${API_BASE_URL}/api/execute-order`, {
+    const resp: any = await axios.post(`${API_BASE_URL}/api/execute-order`, {
       marketId: leg.marketId,
       outcomeIndex,
       side: 'buy',
@@ -46,7 +46,7 @@ export default function HedgeExecution({
       dryRun: false,
     })
 
-    const pm = resp.data?.response || {}
+    const pm = resp?.data?.response || {}
     const tx =
       pm.tradeTxHash ||
       pm.txHash ||
@@ -179,7 +179,7 @@ export default function HedgeExecution({
                 </div>
                 <div className="text-right text-gray-700 font-mono">
                   <div>${leg.cost.toFixed(2)} cost</div>
-                  <div className="text-gray-500">{leg.contracts.toFixed(2)} shares @ ${(leg.hedgePrice * 100).toFixed(4)}¢</div>
+                  <div className="text-gray-500">{leg.contracts.toFixed(2)} shares @ ${leg.hedgePrice.toFixed(4)}</div>
                 </div>
               </div>
             ))}

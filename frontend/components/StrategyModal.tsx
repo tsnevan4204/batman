@@ -165,7 +165,7 @@ export default function StrategyModal({
                         {market.title}
                         <span className="ml-1 text-xs text-gray-500">({side})</span>
                       </div>
-                      <span className="text-gray-400 text-xs">${(price * 100).toFixed(4)}¢</span>
+                      <span className="text-gray-400 text-xs">${price.toFixed(4)}</span>
                     </div>
                   )
                 })}
@@ -246,7 +246,7 @@ export default function StrategyModal({
                     </div>
                     <div className="text-right text-gray-700 font-mono">
                       <div>${leg.cost.toFixed(2)} cost</div>
-                      <div className="text-gray-500">{leg.contracts.toFixed(2)} shares @ ${(leg.hedgePrice * 100).toFixed(4)}¢</div>
+                      <div className="text-gray-500">{leg.contracts.toFixed(2)} shares @ ${leg.hedgePrice.toFixed(4)}</div>
                     </div>
                   </div>
                 ))}
