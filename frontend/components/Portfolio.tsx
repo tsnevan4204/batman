@@ -87,46 +87,46 @@ export default function Portfolio() {
 
   return (
     <div className="max-w-5xl mx-auto">
-      <h2 className="text-2xl font-semibold text-white mb-6">My Hedges</h2>
+      <h2 className="text-2xl font-bold text-gray-900 mb-6">My Hedges</h2>
 
       {hedges.length === 0 ? (
-        <div className="text-center py-12 bg-gray-800 rounded-lg">
-          <p className="text-gray-400 mb-4">No hedges found.</p>
-          <p className="text-gray-500 text-sm">Start by creating a new hedge from the home page.</p>
+        <div className="text-center py-12 bg-gray-50 rounded-xl border border-gray-200">
+          <p className="text-gray-500 mb-4">No hedges found.</p>
+          <p className="text-gray-400 text-sm">Start by creating a new hedge from the home page.</p>
         </div>
       ) : (
         <div className="space-y-4">
           {hedges.map((hedge) => (
             <div
               key={hedge.hedgeId}
-              className="bg-gray-800 rounded-lg p-6 border border-gray-700"
+              className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm hover:shadow-md transition-all"
             >
               <div className="flex justify-between items-start mb-4">
                 <div>
-                  <h3 className="text-lg font-semibold text-white mb-2">
+                  <h3 className="text-lg font-bold text-gray-900 mb-2">
                     Hedge #{hedge.hedgeId}
                   </h3>
                   <div className="space-y-1 text-sm">
                     <div>
-                      <span className="text-gray-400">Market ID: </span>
-                      <span className="text-white">{hedge.marketId}</span>
+                      <span className="text-gray-500">Market ID: </span>
+                      <span className="text-gray-900 font-mono text-xs bg-gray-100 px-1 rounded">{hedge.marketId}</span>
                     </div>
                     <div>
-                      <span className="text-gray-400">Amount: </span>
-                      <span className="text-white font-semibold">
+                      <span className="text-gray-500">Amount: </span>
+                      <span className="text-gray-900 font-bold">
                         {formatAmount(hedge.amount)} USDC
                       </span>
                     </div>
                     <div>
-                      <span className="text-gray-400">Date: </span>
-                      <span className="text-white">{formatDate(hedge.timestamp)}</span>
+                      <span className="text-gray-500">Date: </span>
+                      <span className="text-gray-700">{formatDate(hedge.timestamp)}</span>
                     </div>
                   </div>
                 </div>
                 <div className="text-right">
                   {hedge.receiptTokenId > 0 && (
                     <div className="mb-2">
-                      <span className="px-3 py-1 bg-blue-600 text-white text-sm rounded">
+                      <span className="px-3 py-1 bg-blue-50 text-blue-700 text-sm font-bold rounded-full border border-blue-100">
                         NFT #{hedge.receiptTokenId.toString()}
                       </span>
                     </div>
@@ -135,9 +135,9 @@ export default function Portfolio() {
                     href={`https://basescan.org/tx/${hedge.tradeTxHash}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-blue-400 hover:text-blue-300 text-sm"
+                    className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center justify-end gap-1"
                   >
-                    View Transaction →
+                    View Transaction <span>→</span>
                   </a>
                 </div>
               </div>
