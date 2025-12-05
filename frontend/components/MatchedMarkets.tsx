@@ -3,20 +3,20 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { RiskDetails } from './RiskInput'
-import StrategyModal, { StrategyType } from './StrategyModal'
+import StrategyModal, { HedgePlan } from './StrategyModal'
 import { Check, Loader2 } from 'lucide-react'
 
 interface MatchedMarketsProps {
   riskDetails: RiskDetails
   markets: any[]
-  onSelectMarket: (market: any, amount: string) => void // Kept for legacy single flow compatibility if needed
+  onPlanReady: (plan: HedgePlan) => void
   onBack: () => void
 }
 
 export default function MatchedMarkets({
   riskDetails,
   markets,
-  onSelectMarket,
+  onPlanReady,
   onBack,
 }: MatchedMarketsProps) {
   const [selectedMarkets, setSelectedMarkets] = useState<any[]>([])
@@ -31,11 +31,9 @@ export default function MatchedMarkets({
     return () => clearTimeout(timer)
   }, [])
 
-  // Calculate total exposure from expenses
-  const totalExposure = riskDetails.expenses.reduce((acc, curr) => {
-    const amount = parseFloat(curr.amount) || 0
-    return acc + amount
-  }, 0)
+  const totalRevenueRisk = riskDetails.revenues.reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0)
+  const totalExpenseRisk = riskDetails.expenseRisks.reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0)
+  const totalRisk = totalRevenueRisk + totalExpenseRisk
 
   const toggleMarketSelection = (market: any) => {
     if (selectedMarkets.find(m => m.marketId === market.marketId)) {
@@ -55,18 +53,10 @@ export default function MatchedMarkets({
   // For now, we'll pass the first one to maintain signature compatibility, 
   // or we'd need to refactor the parent to accept an array.
   // To support multi-leg properly, the StrategyModal will return a breakdown.
-  const handleStrategyExecute = (strategy: StrategyType, totalAmount: number) => {
-    // Distribute amount across selected markets (simplified: equal distribution)
-    // In a real app, this would be weighted by risk contribution.
-    const amountPerMarket = totalAmount / selectedMarkets.length
-    
-    // We'll just trigger the first one to start the flow for now, as the execution flow is single-threaded in the current backend.
-    // A full multi-leg execution would require a batch transaction update.
-    // For this UI demo, we'll select the first one and conceptually "bundle" them.
-    if (selectedMarkets.length > 0) {
-      onSelectMarket(selectedMarkets[0], amountPerMarket.toString())
-      setIsStrategyModalOpen(false)
-    }
+  const handleStrategyExecute = (plan: HedgePlan) => {
+    if (plan.legs.length === 0) return
+    onPlanReady(plan)
+    setIsStrategyModalOpen(false)
   }
 
   return (
@@ -90,18 +80,25 @@ export default function MatchedMarkets({
                 "{riskDetails.specificRisk}"
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
-                {riskDetails.expenses.map((exp, idx) => (
-                  exp.name && (
-                    <span key={idx} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-800 border border-green-100">
-                      {exp.name}: ${exp.amount}
-                    </span>
-                  )
-                ))}
+                  {riskDetails.revenues.map((exp, idx) => (
+                    exp.name && (
+                      <span key={`rev-${idx}`} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-800 border border-green-100">
+                        Revenue: {exp.name}: ${exp.amount}
+                      </span>
+                    )
+                  ))}
+                  {riskDetails.expenseRisks.map((exp, idx) => (
+                    exp.name && (
+                      <span key={`exp-${idx}`} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-50 text-orange-800 border border-orange-100">
+                        Expense ↑: {exp.name}: ${exp.amount}
+                      </span>
+                    )
+                  ))}
               </div>
             </div>
             <div className="text-right">
-               <div className="text-sm text-gray-500">Est. Total Exposure</div>
-               <div className="text-2xl font-bold text-gray-900 tracking-tight">${totalExposure.toLocaleString()}</div>
+               <div className="text-sm text-gray-500">Est. Total Downside</div>
+               <div className="text-2xl font-bold text-gray-900 tracking-tight">${totalRisk.toLocaleString()}</div>
             </div>
           </div>
         </div>
@@ -198,11 +195,11 @@ export default function MatchedMarkets({
                     </p>
                     
                     <div className="flex gap-8 text-sm p-3 bg-white/50 rounded-lg border border-gray-100/50">
-                      {market.currentPrice !== null && market.currentPrice !== undefined && (
+                      {market.hedgePrice !== null && market.hedgePrice !== undefined && (
                         <div className="flex flex-col">
                           <span className="text-gray-400 text-xs uppercase font-bold">Current Price</span>
                           <span className="text-gray-900 font-bold text-lg">
-                            ${(market.currentPrice * 100).toFixed(1)}¢
+                            ${(market.hedgePrice * 100).toFixed(4)}¢ ({market.side || 'Yes'})
                           </span>
                         </div>
                       )}
@@ -235,7 +232,7 @@ export default function MatchedMarkets({
         isOpen={isStrategyModalOpen}
         onClose={() => setIsStrategyModalOpen(false)}
         selectedMarkets={selectedMarkets}
-        totalExposure={totalExposure}
+        totalRisk={totalRisk}
         onExecute={handleStrategyExecute}
       />
     </div>

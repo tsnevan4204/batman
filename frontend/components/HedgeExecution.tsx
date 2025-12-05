@@ -1,77 +1,81 @@
 'use client'
 
 import { useState } from 'react'
-import { useAccount } from 'wagmi'
 import { parseUnits } from 'viem'
 import axios from 'axios'
 import { ethers } from 'ethers'
 import { Loader2, CheckCircle, Shield } from 'lucide-react'
+import { HedgePlan, HedgeLeg } from './StrategyModal'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 const HEDGE_REGISTRY_ADDRESS = process.env.NEXT_PUBLIC_HEDGE_REGISTRY_ADDRESS || ''
 
 interface HedgeExecutionProps {
   riskDescription: string
-  market: any
-  amount: string
+  plan: HedgePlan
   onComplete: () => void
   onBack: () => void
 }
 
+type Step = 'prepare' | 'submit' | 'record' | 'recording' | 'complete'
+
 export default function HedgeExecution({
   riskDescription,
-  market,
-  amount,
+  plan,
   onComplete,
   onBack,
 }: HedgeExecutionProps) {
-  const { address } = useAccount()
-  const [step, setStep] = useState<'prepare' | 'sign' | 'submit' | 'record' | 'recording' | 'complete'>('prepare')
+  const [step, setStep] = useState<Step>('prepare')
   const [error, setError] = useState<string | null>(null)
-  const [tradeTxHash, setTradeTxHash] = useState<string | null>(null)
+  const [tradeTxHashes, setTradeTxHashes] = useState<string[]>([])
   const [recordTxHash, setRecordTxHash] = useState<string | null>(null)
-  const [orderData, setOrderData] = useState<any>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
+
+  const executeLeg = async (leg: HedgeLeg) => {
+    const limitPrice = leg.hedgePrice || 0.5
+    const shares = limitPrice > 0 ? leg.cost / limitPrice : 0
+    const outcomeIndex = leg.side === 'Yes' ? 0 : 1
+
+    const resp = await axios.post(`${API_BASE_URL}/api/execute-order`, {
+      marketId: leg.marketId,
+      outcomeIndex,
+      side: 'buy',
+      size: shares,
+      limitPrice,
+      dryRun: false,
+    })
+
+    const pm = resp.data?.response || {}
+    const tx =
+      pm.tradeTxHash ||
+      pm.txHash ||
+      pm.transactionHash ||
+      pm.id ||
+      pm.orderId ||
+      null
+
+    return { resp, tx }
+  }
 
   const handleExecute = async () => {
     try {
       setError(null)
       setStep('submit')
       setIsSubmitting(true)
+      const txs: string[] = []
 
-      const limitPrice = market.currentPrice || 0.5
-      const shares = limitPrice > 0 ? parseFloat(amount) / limitPrice : 0
-
-      const resp = await axios.post(`${API_BASE_URL}/api/execute-order`, {
-        marketId: market.marketId,
-        outcomeIndex: 0, // YES outcome
-        side: 'buy',
-        size: shares,
-        limitPrice,
-        dryRun: false,
-      })
-
-      setOrderData(resp.data)
-
-      const pm = resp.data?.response || {}
-      const tx =
-        pm.tradeTxHash ||
-        pm.txHash ||
-        pm.transactionHash ||
-        pm.id ||
-        pm.orderId ||
-        null
-
-      if (tx) {
-        setTradeTxHash(tx)
-        setStep('record')
-      } else if (resp.data?.response?.dryRun) {
-        setTradeTxHash('dry-run')
-        setStep('record')
-      } else {
-        throw new Error('No transaction hash returned from executor')
+      for (const leg of plan.legs) {
+        const { resp, tx } = await executeLeg(leg)
+        if (tx) {
+          txs.push(tx)
+        } else if (resp?.response?.dryRun) {
+          txs.push('dry-run')
+        }
       }
+
+      setTradeTxHashes(txs)
+      setStep('record')
     } catch (err: any) {
       const detail =
         err?.response?.data?.detail ||
@@ -87,7 +91,6 @@ export default function HedgeExecution({
   }
 
   const handleRecordOnChain = async () => {
-    // Prevent double submit
     if (isRecording) return
     
     try {
@@ -95,29 +98,26 @@ export default function HedgeExecution({
       setIsRecording(true)
       setStep('recording')
 
-      // Compute risk hash
       const riskHash = ethers.keccak256(ethers.toUtf8Bytes(riskDescription))
-
-      // Call recordHedge on contract using Smart Wallet (paymaster-sponsored)
       const provider = new ethers.BrowserProvider((window as any).ethereum)
       const signer = await provider.getSigner()
 
-      // ABI for recordHedge function
       const abi = [
         'function recordHedge(bytes32 riskHash, string calldata marketId, uint256 amount, string calldata tradeTxHash) external returns (uint256 receiptTokenId)',
       ]
 
       const contract = new ethers.Contract(HEDGE_REGISTRY_ADDRESS, abi, signer)
+      const totalCost = plan.totalCost.toFixed(2)
+      const amountWei = parseUnits(totalCost, 6)
 
-      // Convert amount to USDC units (6 decimals)
-      const amountWei = parseUnits(amount, 6)
+      const primaryMarketId = plan.legs[0]?.marketId || ''
+      const primaryTx = tradeTxHashes[0] || ''
 
-      // This call should be sponsored by the paymaster (no gas prompt)
       const tx = await contract.recordHedge(
         riskHash,
-        market.marketId,
+        primaryMarketId,
         amountWei,
-        tradeTxHash
+        primaryTx
       )
 
       setRecordTxHash(tx.hash)
@@ -130,7 +130,7 @@ export default function HedgeExecution({
     } catch (err: any) {
       setError(err.message || 'Failed to record hedge on-chain')
       console.error('Error recording hedge:', err)
-      setStep('record') // Go back to record step on error
+      setStep('record')
     } finally {
       setIsRecording(false)
     }
@@ -148,18 +148,41 @@ export default function HedgeExecution({
       <div className="bg-white rounded-xl p-8 shadow-sm border border-gray-200">
         <h2 className="text-2xl font-bold text-gray-900 mb-6">Execute Hedge</h2>
 
-        {/* Market Summary */}
+        {/* Plan Summary */}
         <div className="bg-gray-50 rounded-lg p-4 mb-6 border border-gray-200">
-          <h3 className="text-lg font-bold text-gray-900 mb-2">{market.title}</h3>
+          <h3 className="text-lg font-bold text-gray-900 mb-2">Selected Plan: {plan.strategy}</h3>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
-              <span className="text-gray-500">Amount: </span>
-              <span className="text-gray-900 font-bold">{amount} USDC</span>
+              <span className="text-gray-500">Coverage: </span>
+              <span className="text-gray-900 font-bold">{(plan.coverage * 100).toFixed(0)}%</span>
             </div>
             <div>
-              <span className="text-gray-500">Outcome: </span>
-              <span className="text-gray-900 font-bold">YES</span>
+              <span className="text-gray-500">Total Cost: </span>
+              <span className="text-gray-900 font-bold">${plan.totalCost.toFixed(2)}</span>
             </div>
+            <div>
+              <span className="text-gray-500">Risk Hedged: </span>
+              <span className="text-gray-900 font-bold">${plan.totalRisk.toFixed(2)}</span>
+            </div>
+            <div>
+              <span className="text-gray-500">Legs: </span>
+              <span className="text-gray-900 font-bold">{plan.legs.length}</span>
+            </div>
+          </div>
+          <div className="mt-3 space-y-2">
+            {plan.legs.map((leg, idx) => (
+              <div key={leg.marketId} className="flex justify-between text-xs bg-white rounded border border-gray-200 p-2">
+                <div className="truncate max-w-[220px]">
+                  <span className="font-semibold text-gray-800">Leg {idx + 1}:</span>{' '}
+                  <span className="text-gray-700">{leg.title}</span>
+                  <span className="text-gray-500 ml-1">({leg.side})</span>
+                </div>
+                <div className="text-right text-gray-700 font-mono">
+                  <div>${leg.cost.toFixed(2)} cost</div>
+                  <div className="text-gray-500">{leg.contracts.toFixed(2)} shares @ ${(leg.hedgePrice * 100).toFixed(4)}¢</div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -180,33 +203,24 @@ export default function HedgeExecution({
             }`}>
               {step === 'prepare' ? '1' : <CheckCircle className="w-5 h-5" />}
             </div>
-            <span>Prepare Order</span>
+            <span>Prepare Orders</span>
           </div>
 
-          <div className={`flex items-center gap-3 ${step === 'sign' ? 'text-blue-600 font-medium' : step === 'prepare' ? 'text-gray-400' : 'text-gray-500'}`}>
+          <div className={`flex items-center gap-3 ${step === 'submit' ? 'text-blue-600 font-medium' : ['prepare'].includes(step) ? 'text-gray-400' : 'text-gray-500'}`}>
             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold ${
-              step === 'sign' ? 'bg-blue-600' : step === 'prepare' ? 'bg-gray-300' : 'bg-green-600'
+              step === 'submit' ? 'bg-blue-600' : ['prepare'].includes(step) ? 'bg-gray-300' : 'bg-green-600'
             }`}>
-              {['prepare', 'sign'].includes(step) ? '2' : <CheckCircle className="w-5 h-5" />}
-            </div>
-            <span>Sign Order</span>
-          </div>
-
-          <div className={`flex items-center gap-3 ${step === 'submit' ? 'text-blue-600 font-medium' : ['prepare', 'sign'].includes(step) ? 'text-gray-400' : 'text-gray-500'}`}>
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold ${
-              step === 'submit' ? 'bg-blue-600' : ['prepare', 'sign'].includes(step) ? 'bg-gray-300' : 'bg-green-600'
-            }`}>
-              {['prepare', 'sign', 'submit'].includes(step) ? '3' : <CheckCircle className="w-5 h-5" />}
+              {['prepare', 'submit'].includes(step) ? '2' : <CheckCircle className="w-5 h-5" />}
             </div>
             <span>Submit to Polymarket</span>
           </div>
 
-          <div className={`flex items-center gap-3 ${['record', 'recording'].includes(step) ? 'text-blue-600 font-medium' : ['prepare', 'sign', 'submit'].includes(step) ? 'text-gray-400' : 'text-gray-500'}`}>
+          <div className={`flex items-center gap-3 ${['record', 'recording'].includes(step) ? 'text-blue-600 font-medium' : ['prepare', 'submit'].includes(step) ? 'text-gray-400' : 'text-gray-500'}`}>
             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold ${
-              ['record', 'recording'].includes(step) ? 'bg-blue-600' : ['prepare', 'sign', 'submit'].includes(step) ? 'bg-gray-300' : 'bg-green-600'
+              ['record', 'recording'].includes(step) ? 'bg-blue-600' : ['prepare', 'submit'].includes(step) ? 'bg-gray-300' : 'bg-green-600'
             }`}>
               {step === 'recording' ? <Loader2 className="w-5 h-5 animate-spin" /> : 
-               step === 'complete' ? <CheckCircle className="w-5 h-5" /> : '4'}
+               step === 'complete' ? <CheckCircle className="w-5 h-5" /> : '3'}
             </div>
             <span>Record on Base (Sponsored)</span>
           </div>
@@ -228,27 +242,24 @@ export default function HedgeExecution({
           </button>
         )}
 
-        {step === 'sign' && (
-          <div className="text-center p-8 bg-gray-50 rounded-lg border border-gray-200">
-            <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-blue-600" />
-            <p className="text-gray-600 mb-4">Please sign the order in your wallet...</p>
-          </div>
-        )}
-
         {step === 'submit' && (
           <div className="text-center p-8 bg-gray-50 rounded-lg border border-gray-200">
             <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-blue-600" />
-            <p className="text-gray-600 mb-4">Submitting order to Polymarket...</p>
+            <p className="text-gray-600 mb-4">Submitting bundled orders to Polymarket...</p>
           </div>
         )}
 
-        {step === 'record' && tradeTxHash && (
+        {step === 'record' && tradeTxHashes.length > 0 && (
           <div>
             <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-              <p className="text-green-800 font-medium mb-2">Trade executed successfully!</p>
-              <p className="text-sm text-green-600 break-all">
-                Transaction: {tradeTxHash}
-              </p>
+              <p className="text-green-800 font-medium mb-2">Orders executed!</p>
+              <div className="text-sm text-green-700 space-y-1">
+                {tradeTxHashes.map((tx, idx) => (
+                  <div key={idx} className="break-all">
+                    Leg {idx + 1}: {tx}
+                  </div>
+                ))}
+              </div>
             </div>
             <button
               onClick={handleRecordOnChain}

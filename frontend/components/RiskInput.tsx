@@ -6,7 +6,7 @@ import { motion } from 'framer-motion'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-export interface ExpenseItem {
+export interface ExposureItem {
   name: string
   amount: string
 }
@@ -14,7 +14,8 @@ export interface ExpenseItem {
 export interface RiskDetails {
   businessOverview: string
   specificRisk: string
-  expenses: ExpenseItem[]
+  revenues: ExposureItem[]
+  expenseRisks: ExposureItem[]
 }
 
 interface RiskInputProps {
@@ -60,10 +61,9 @@ const TypewriterPlaceholder = ({ text, isVisible }: { text: string, isVisible: b
 export default function RiskInput({ onMatch }: RiskInputProps) {
   const [businessOverview, setBusinessOverview] = useState('')
   const [specificRisk, setSpecificRisk] = useState('')
-  const [expenses, setExpenses] = useState<ExpenseItem[]>([
-    { name: '', amount: '' }
-  ])
-  const [showExpenses, setShowExpenses] = useState(false)
+  const [revenues, setRevenues] = useState<ExposureItem[]>([{ name: '', amount: '' }])
+  const [expenseRisks, setExpenseRisks] = useState<ExposureItem[]>([{ name: '', amount: '' }])
+  const [showSensitivities, setShowSensitivities] = useState(false)
   
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -71,20 +71,30 @@ export default function RiskInput({ onMatch }: RiskInputProps) {
   // Focus states for placeholders
   const [activeField, setActiveField] = useState<string | null>(null)
 
-  const addExpense = () => {
-    setExpenses([...expenses, { name: '', amount: '' }])
+  const addRevenue = () => setRevenues([...revenues, { name: '', amount: '' }])
+  const addExpenseRisk = () => setExpenseRisks([...expenseRisks, { name: '', amount: '' }])
+
+  const updateRevenue = (index: number, field: keyof ExposureItem, value: string) => {
+    const next = [...revenues]
+    next[index][field] = value
+    setRevenues(next)
   }
 
-  const updateExpense = (index: number, field: keyof ExpenseItem, value: string) => {
-    const newExpenses = [...expenses]
-    newExpenses[index][field] = value
-    setExpenses(newExpenses)
+  const updateExpenseRisk = (index: number, field: keyof ExposureItem, value: string) => {
+    const next = [...expenseRisks]
+    next[index][field] = value
+    setExpenseRisks(next)
   }
 
-  const removeExpense = (index: number) => {
-    if (expenses.length > 1) {
-      const newExpenses = expenses.filter((_, i) => i !== index)
-      setExpenses(newExpenses)
+  const removeRevenue = (index: number) => {
+    if (revenues.length > 1) {
+      setRevenues(revenues.filter((_, i) => i !== index))
+    }
+  }
+
+  const removeExpenseRisk = (index: number) => {
+    if (expenseRisks.length > 1) {
+      setExpenseRisks(expenseRisks.filter((_, i) => i !== index))
     }
   }
 
@@ -101,11 +111,19 @@ export default function RiskInput({ onMatch }: RiskInputProps) {
     // Construct composite description for the AI backend
     let compositeDescription = `Business Context: ${businessOverview}\n\nSpecific Risk: ${specificRisk}`
     
-    const validExpenses = expenses.filter(e => e.name && e.amount)
-    if (validExpenses.length > 0) {
-      compositeDescription += `\n\nKey Exposures:`
-      validExpenses.forEach(exp => {
-        compositeDescription += `\n- ${exp.name}: $${exp.amount}/mo`
+    const validRevenues = revenues.filter(e => e.name && e.amount)
+    const validExpenseRisks = expenseRisks.filter(e => e.name && e.amount)
+
+    if (validRevenues.length > 0) {
+      compositeDescription += `\n\nRevenue at Risk:`
+      validRevenues.forEach(exp => {
+        compositeDescription += `\n- ${exp.name}: $${exp.amount}`
+      })
+    }
+    if (validExpenseRisks.length > 0) {
+      compositeDescription += `\n\nExpense Increase Scenarios:`
+      validExpenseRisks.forEach(exp => {
+        compositeDescription += `\n- ${exp.name}: +$${exp.amount}`
       })
     }
 
@@ -118,7 +136,8 @@ export default function RiskInput({ onMatch }: RiskInputProps) {
         onMatch(compositeDescription, response.data.matches, {
           businessOverview,
           specificRisk,
-          expenses: validExpenses
+          revenues: validRevenues,
+          expenseRisks: validExpenseRisks
         })
       } else {
         setError('No matching markets found. Try refining your risk description.')
@@ -204,7 +223,7 @@ export default function RiskInput({ onMatch }: RiskInputProps) {
             </div>
           </motion.div>
 
-          {/* Section C: Optional Metrics */}
+          {/* Section C: Optional Structured Sensitivities */}
           <motion.div 
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -213,68 +232,135 @@ export default function RiskInput({ onMatch }: RiskInputProps) {
           >
             <button
               type="button"
-              onClick={() => setShowExpenses(!showExpenses)}
+              onClick={() => setShowSensitivities(!showSensitivities)}
               className="w-full flex justify-between items-center p-4 hover:bg-white/50 transition-colors"
             >
               <span className="font-medium text-gray-700 flex items-center gap-2">
-                <span className={`w-5 h-5 flex items-center justify-center rounded border ${showExpenses ? 'border-hedge-green text-hedge-green bg-green-50' : 'border-gray-300 text-gray-400'}`}>
-                  {showExpenses ? '−' : '+'}
+                <span className={`w-5 h-5 flex items-center justify-center rounded border ${showSensitivities ? 'border-hedge-green text-hedge-green bg-green-50' : 'border-gray-300 text-gray-400'}`}>
+                  {showSensitivities ? '−' : '+'}
                 </span>
-                Add Structured Metrics (Optional)
+                Add Structured Sensitivities (Optional)
               </span>
-              <span className="text-sm text-gray-500">Expenses & Sensitivities</span>
+              <span className="text-sm text-gray-500">Revenue at risk & expense spikes</span>
             </button>
 
-            {showExpenses && (
-              <div className="p-4 bg-white/50 border-t border-gray-100 space-y-4 animate-in slide-in-from-top-2 duration-200">
-                <div className="grid grid-cols-12 gap-4 mb-2 text-xs font-semibold text-gray-500 uppercase">
-                  <div className="col-span-7">Expense Name</div>
-                  <div className="col-span-4">Monthly Spend</div>
-                  <div className="col-span-1"></div>
-                </div>
-                
-                {expenses.map((expense, idx) => (
-                  <div key={idx} className="grid grid-cols-12 gap-4 items-center">
-                    <div className="col-span-7">
-                      <input
-                        type="text"
-                        value={expense.name}
-                        onChange={(e) => updateExpense(idx, 'name', e.target.value)}
-                        placeholder="e.g. Shipping"
-                        className="w-full p-2 bg-white border border-gray-200 rounded focus:border-hedge-green focus:outline-none text-sm text-gray-900 shadow-sm"
-                      />
+            {showSensitivities && (
+              <div className="p-4 bg-white/50 border-t border-gray-100 space-y-6 animate-in slide-in-from-top-2 duration-200">
+                {/* Revenue at risk */}
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <h4 className="text-sm font-semibold text-gray-800">Revenue at Risk</h4>
+                      <p className="text-xs text-gray-500">Dollar impact if the event hurts sales.</p>
                     </div>
-                    <div className="col-span-4 relative">
-                      <span className="absolute left-2 top-2 text-gray-400 text-sm">$</span>
-                      <input
-                        type="number"
-                        value={expense.amount}
-                        onChange={(e) => updateExpense(idx, 'amount', e.target.value)}
-                        placeholder="0"
-                        className="w-full p-2 pl-5 bg-white border border-gray-200 rounded focus:border-hedge-green focus:outline-none text-sm text-gray-900 shadow-sm"
-                      />
-                    </div>
-                    <div className="col-span-1 text-center">
-                      {expenses.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeExpense(idx)}
-                          className="text-gray-400 hover:text-red-500 transition-colors"
-                        >
-                          ×
-                        </button>
-                      )}
-                    </div>
+                    <button
+                      type="button"
+                      onClick={addRevenue}
+                      className="text-sm text-hedge-green hover:text-hedge-green-dark font-medium flex items-center gap-1"
+                    >
+                      <span>+</span> Add
+                    </button>
                   </div>
-                ))}
-                
-                <button
-                  type="button"
-                  onClick={addExpense}
-                  className="text-sm text-hedge-green hover:text-hedge-green-dark font-medium mt-2 flex items-center gap-1"
-                >
-                  <span>+</span> Add another expense
-                </button>
+
+                  <div className="grid grid-cols-12 gap-3 text-xs font-semibold text-gray-500 uppercase mb-2">
+                    <div className="col-span-7">Name</div>
+                    <div className="col-span-4">Amount at risk</div>
+                    <div className="col-span-1" />
+                  </div>
+
+                  {revenues.map((rev, idx) => (
+                    <div key={`rev-${idx}`} className="grid grid-cols-12 gap-3 items-center mb-2">
+                      <div className="col-span-7">
+                        <input
+                          type="text"
+                          value={rev.name}
+                          onChange={(e) => updateRevenue(idx, 'name', e.target.value)}
+                          placeholder="e.g. Game-day sales"
+                          className="w-full p-2 bg-white border border-gray-200 rounded focus:border-hedge-green focus:outline-none text-sm text-gray-900 shadow-sm"
+                        />
+                      </div>
+                      <div className="col-span-4 relative">
+                        <span className="absolute left-2 top-2 text-gray-400 text-sm">$</span>
+                        <input
+                          type="number"
+                          value={rev.amount}
+                          onChange={(e) => updateRevenue(idx, 'amount', e.target.value)}
+                          placeholder="0"
+                          className="w-full p-2 pl-5 bg-white border border-gray-200 rounded focus:border-hedge-green focus:outline-none text-sm text-gray-900 shadow-sm"
+                        />
+                      </div>
+                      <div className="col-span-1 text-center">
+                        {revenues.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeRevenue(idx)}
+                            className="text-gray-400 hover:text-red-500 transition-colors"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Expense increase */}
+                <div className="pt-2 border-t border-gray-100">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <h4 className="text-sm font-semibold text-gray-800">Expense Increase (worst case)</h4>
+                      <p className="text-xs text-gray-500">Extra dollars you might pay if the event hits.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addExpenseRisk}
+                      className="text-sm text-hedge-green hover:text-hedge-green-dark font-medium flex items-center gap-1"
+                    >
+                      <span>+</span> Add
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-12 gap-3 text-xs font-semibold text-gray-500 uppercase mb-2">
+                    <div className="col-span-7">Name</div>
+                    <div className="col-span-4">Increase to hedge</div>
+                    <div className="col-span-1" />
+                  </div>
+
+                  {expenseRisks.map((exp, idx) => (
+                    <div key={`exp-${idx}`} className="grid grid-cols-12 gap-3 items-center mb-2">
+                      <div className="col-span-7">
+                        <input
+                          type="text"
+                          value={exp.name}
+                          onChange={(e) => updateExpenseRisk(idx, 'name', e.target.value)}
+                          placeholder="e.g. Fuel +$50k"
+                          className="w-full p-2 bg-white border border-gray-200 rounded focus:border-hedge-green focus:outline-none text-sm text-gray-900 shadow-sm"
+                        />
+                      </div>
+                      <div className="col-span-4 relative">
+                        <span className="absolute left-2 top-2 text-gray-400 text-sm">$</span>
+                        <input
+                          type="number"
+                          value={exp.amount}
+                          onChange={(e) => updateExpenseRisk(idx, 'amount', e.target.value)}
+                          placeholder="0"
+                          className="w-full p-2 pl-5 bg-white border border-gray-200 rounded focus:border-hedge-green focus:outline-none text-sm text-gray-900 shadow-sm"
+                        />
+                      </div>
+                      <div className="col-span-1 text-center">
+                        {expenseRisks.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeExpenseRisk(idx)}
+                            className="text-gray-400 hover:text-red-500 transition-colors"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </motion.div>
