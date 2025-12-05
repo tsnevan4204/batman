@@ -75,21 +75,21 @@ export default function Home() {
               <div className="flex justify-end">
                 <div className="flex justify-end">
                   <Wallet>
-                    <ConnectWallet>
+                    <ConnectWallet className="bg-gray-100 text-black hover:bg-gray-200 border border-gray-300">
                       <Avatar className="h-6 w-6" />
-                      <Name />
+                      <Name className="text-black" />
                     </ConnectWallet>
-                    <WalletDropdown>
+                    <WalletDropdown className="bg-white border border-gray-200 text-black">
                       <Identity className="px-4 pt-3 pb-2" hasCopyAddressOnClick>
                         <Avatar />
-                        <Name />
-                        <Address />
-                        <EthBalance />
+                        <Name className="text-black font-bold" />
+                        <Address className="text-gray-600" />
+                        <EthBalance className="text-black" />
                       </Identity>
-                      <WalletDropdownLink icon="wallet" href="https://keys.coinbase.com">
+                      <WalletDropdownLink icon="wallet" href="https://keys.coinbase.com" className="text-black hover:bg-gray-100">
                         Wallet
                       </WalletDropdownLink>
-                      <WalletDropdownDisconnect />
+                      <WalletDropdownDisconnect className="text-black hover:bg-gray-100" />
                     </WalletDropdown>
                   </Wallet>
                 </div>
@@ -119,21 +119,21 @@ export default function Home() {
                 <div className="scale-110">
                   <div className="flex gap-2 justify-center">
                     <Wallet>
-                      <ConnectWallet>
+                      <ConnectWallet className="bg-gray-100 text-black hover:bg-gray-200 border border-gray-300">
                         <Avatar className="h-6 w-6" />
-                        <Name />
+                        <Name className="text-black" />
                       </ConnectWallet>
-                      <WalletDropdown>
+                      <WalletDropdown className="bg-white border border-gray-200 text-black">
                         <Identity className="px-4 pt-3 pb-2" hasCopyAddressOnClick>
                           <Avatar />
-                          <Name />
-                          <Address />
-                          <EthBalance />
+                          <Name className="text-black font-bold" />
+                          <Address className="text-gray-600" />
+                          <EthBalance className="text-black" />
                         </Identity>
-                        <WalletDropdownLink icon="wallet" href="https://keys.coinbase.com">
+                        <WalletDropdownLink icon="wallet" href="https://keys.coinbase.com" className="text-black hover:bg-gray-100">
                           Wallet
                         </WalletDropdownLink>
-                        <WalletDropdownDisconnect />
+                        <WalletDropdownDisconnect className="text-black hover:bg-gray-100" />
                       </WalletDropdown>
                     </Wallet>
                   </div>

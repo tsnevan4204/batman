@@ -5,6 +5,7 @@ import { useAccount } from 'wagmi'
 import { parseUnits } from 'viem'
 import axios from 'axios'
 import { ethers } from 'ethers'
+import { Loader2, CheckCircle, Shield } from 'lucide-react'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 const HEDGE_REGISTRY_ADDRESS = process.env.NEXT_PUBLIC_HEDGE_REGISTRY_ADDRESS || ''
@@ -25,11 +26,13 @@ export default function HedgeExecution({
   onBack,
 }: HedgeExecutionProps) {
   const { address } = useAccount()
-  const [step, setStep] = useState<'prepare' | 'sign' | 'submit' | 'record' | 'complete'>('prepare')
+  const [step, setStep] = useState<'prepare' | 'sign' | 'submit' | 'record' | 'recording' | 'complete'>('prepare')
   const [error, setError] = useState<string | null>(null)
   const [tradeTxHash, setTradeTxHash] = useState<string | null>(null)
+  const [recordTxHash, setRecordTxHash] = useState<string | null>(null)
   const [orderData, setOrderData] = useState<any>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isRecording, setIsRecording] = useState(false)
 
   const handleExecute = async () => {
     try {
@@ -84,13 +87,18 @@ export default function HedgeExecution({
   }
 
   const handleRecordOnChain = async () => {
+    // Prevent double submit
+    if (isRecording) return
+    
     try {
       setError(null)
+      setIsRecording(true)
+      setStep('recording')
 
       // Compute risk hash
       const riskHash = ethers.keccak256(ethers.toUtf8Bytes(riskDescription))
 
-      // Call recordHedge on contract
+      // Call recordHedge on contract using Smart Wallet (paymaster-sponsored)
       const provider = new ethers.BrowserProvider((window as any).ethereum)
       const signer = await provider.getSigner()
 
@@ -104,6 +112,7 @@ export default function HedgeExecution({
       // Convert amount to USDC units (6 decimals)
       const amountWei = parseUnits(amount, 6)
 
+      // This call should be sponsored by the paymaster (no gas prompt)
       const tx = await contract.recordHedge(
         riskHash,
         market.marketId,
@@ -111,6 +120,8 @@ export default function HedgeExecution({
         tradeTxHash
       )
 
+      setRecordTxHash(tx.hash)
+      
       await tx.wait()
       setStep('complete')
       setTimeout(() => {
@@ -119,6 +130,9 @@ export default function HedgeExecution({
     } catch (err: any) {
       setError(err.message || 'Failed to record hedge on-chain')
       console.error('Error recording hedge:', err)
+      setStep('record') // Go back to record step on error
+    } finally {
+      setIsRecording(false)
     }
   }
 
@@ -126,7 +140,7 @@ export default function HedgeExecution({
     <div className="max-w-3xl mx-auto">
       <button
         onClick={onBack}
-        className="text-blue-400 hover:text-blue-300 mb-6 flex items-center gap-2"
+        className="text-blue-600 hover:text-blue-800 mb-6 flex items-center gap-2 font-medium"
       >
         ← Back to Markets
       </button>
@@ -149,13 +163,22 @@ export default function HedgeExecution({
           </div>
         </div>
 
+        {/* Paymaster Info Banner */}
+        <div className="mb-6 p-3 bg-green-50 border border-green-200 rounded-lg flex items-center gap-3">
+          <Shield className="w-5 h-5 text-green-600" />
+          <div>
+            <p className="text-green-800 text-sm font-medium">Gas Sponsored by Coinbase Paymaster</p>
+            <p className="text-green-600 text-xs">Recording your hedge on Base Sepolia is free!</p>
+          </div>
+        </div>
+
         {/* Steps */}
         <div className="space-y-4 mb-6">
           <div className={`flex items-center gap-3 ${step === 'prepare' ? 'text-blue-600 font-medium' : 'text-gray-500'}`}>
             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold ${
-              step === 'prepare' ? 'bg-blue-600' : 'bg-gray-300'
+              step === 'prepare' ? 'bg-blue-600' : 'bg-green-600'
             }`}>
-              1
+              {step === 'prepare' ? '1' : <CheckCircle className="w-5 h-5" />}
             </div>
             <span>Prepare Order</span>
           </div>
@@ -164,7 +187,7 @@ export default function HedgeExecution({
             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold ${
               step === 'sign' ? 'bg-blue-600' : step === 'prepare' ? 'bg-gray-300' : 'bg-green-600'
             }`}>
-              2
+              {['prepare', 'sign'].includes(step) ? '2' : <CheckCircle className="w-5 h-5" />}
             </div>
             <span>Sign Order</span>
           </div>
@@ -173,18 +196,19 @@ export default function HedgeExecution({
             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold ${
               step === 'submit' ? 'bg-blue-600' : ['prepare', 'sign'].includes(step) ? 'bg-gray-300' : 'bg-green-600'
             }`}>
-              3
+              {['prepare', 'sign', 'submit'].includes(step) ? '3' : <CheckCircle className="w-5 h-5" />}
             </div>
             <span>Submit to Polymarket</span>
           </div>
 
-          <div className={`flex items-center gap-3 ${step === 'record' ? 'text-blue-600 font-medium' : ['prepare', 'sign', 'submit'].includes(step) ? 'text-gray-400' : 'text-gray-500'}`}>
+          <div className={`flex items-center gap-3 ${['record', 'recording'].includes(step) ? 'text-blue-600 font-medium' : ['prepare', 'sign', 'submit'].includes(step) ? 'text-gray-400' : 'text-gray-500'}`}>
             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold ${
-              step === 'record' ? 'bg-blue-600' : ['prepare', 'sign', 'submit'].includes(step) ? 'bg-gray-300' : 'bg-green-600'
+              ['record', 'recording'].includes(step) ? 'bg-blue-600' : ['prepare', 'sign', 'submit'].includes(step) ? 'bg-gray-300' : 'bg-green-600'
             }`}>
-              4
+              {step === 'recording' ? <Loader2 className="w-5 h-5 animate-spin" /> : 
+               step === 'complete' ? <CheckCircle className="w-5 h-5" /> : '4'}
             </div>
-            <span>Record on Base</span>
+            <span>Record on Base (Sponsored)</span>
           </div>
         </div>
 
@@ -206,13 +230,15 @@ export default function HedgeExecution({
 
         {step === 'sign' && (
           <div className="text-center p-8 bg-gray-50 rounded-lg border border-gray-200">
-            <p className="text-gray-600 mb-4 animate-pulse">Please sign the order in your wallet...</p>
+            <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-blue-600" />
+            <p className="text-gray-600 mb-4">Please sign the order in your wallet...</p>
           </div>
         )}
 
         {step === 'submit' && (
           <div className="text-center p-8 bg-gray-50 rounded-lg border border-gray-200">
-            <p className="text-gray-600 mb-4 animate-pulse">Submitting order to Polymarket...</p>
+            <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-blue-600" />
+            <p className="text-gray-600 mb-4">Submitting order to Polymarket...</p>
           </div>
         )}
 
@@ -226,21 +252,57 @@ export default function HedgeExecution({
             </div>
             <button
               onClick={handleRecordOnChain}
-              className="w-full px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors"
+              disabled={isRecording}
+              className="w-full px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
             >
-              Record Hedge on Base
+              {isRecording ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Recording...
+                </>
+              ) : (
+                'Record Hedge on Base (Gas Free)'
+              )}
             </button>
+          </div>
+        )}
+
+        {step === 'recording' && (
+          <div className="text-center p-8 bg-blue-50 rounded-lg border border-blue-200">
+            <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-blue-600" />
+            <p className="text-blue-800 font-medium mb-2">Recording hedge on Base...</p>
+            <p className="text-blue-600 text-sm">Gas is being sponsored by Coinbase Paymaster</p>
+            {recordTxHash && (
+              <a
+                href={`https://sepolia.basescan.org/tx/${recordTxHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 hover:underline text-xs mt-2 inline-block"
+              >
+                View on BaseScan →
+              </a>
+            )}
           </div>
         )}
 
         {step === 'complete' && (
           <div className="text-center p-6 bg-green-50 border border-green-200 rounded-lg">
-            <p className="text-green-800 text-lg font-bold mb-2">✓ Hedge Complete!</p>
-            <p className="text-green-600">Your hedge has been recorded and NFT receipt minted.</p>
+            <CheckCircle className="w-12 h-12 text-green-600 mx-auto mb-4" />
+            <p className="text-green-800 text-lg font-bold mb-2">Hedge Complete!</p>
+            <p className="text-green-600 mb-4">Your hedge has been recorded and NFT receipt minted.</p>
+            {recordTxHash && (
+              <a
+                href={`https://sepolia.basescan.org/tx/${recordTxHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 hover:underline text-sm"
+              >
+                View Transaction on BaseScan →
+              </a>
+            )}
           </div>
         )}
       </div>
     </div>
   )
 }
-
