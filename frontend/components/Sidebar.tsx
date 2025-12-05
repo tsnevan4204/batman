@@ -216,17 +216,26 @@ export default function Sidebar({ currentView, onNavigate }: SidebarProps) {
 
       {/* Quick Actions / Footer */}
       <div className="p-4 border-t border-gray-100 bg-gray-50/50">
-        <div className="text-xs font-medium text-gray-500 mb-2 px-2">Risk Exposure</div>
-        <div className="bg-white rounded-lg p-3 border border-gray-200">
-          <div className="flex justify-between items-center mb-1">
-            <span className="text-xs text-gray-600">Total Covered</span>
-            <span className="text-xs font-bold text-gray-900">
-              {recentHedges.reduce((acc, h) => acc + (Number(h.amount) / 1000000), 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}
-            </span>
-          </div>
-          <div className="w-full bg-gray-100 rounded-full h-1.5 mt-2 overflow-hidden">
-            <div className="bg-hedge-green h-full rounded-full w-[45%] animate-pulse" />
-          </div>
+        <div className="text-xs font-medium text-gray-500 mb-2 px-2">Faucets (Testnet)</div>
+        <div className="grid grid-cols-1 gap-2">
+          <a
+            href="https://faucet.circle.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-between px-3 py-2 rounded-lg border border-gray-200 bg-white text-xs font-medium text-gray-800 hover:border-hedge-green hover:text-hedge-green transition-colors"
+          >
+            <span>Base Sepolia USDC (Circle)</span>
+            <ExternalLink size={14} />
+          </a>
+          <a
+            href="https://faucet.polygon.technology/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-between px-3 py-2 rounded-lg border border-gray-200 bg-white text-xs font-medium text-gray-800 hover:border-hedge-green hover:text-hedge-green transition-colors"
+          >
+            <span>Polygon Amoy MATIC (gas)</span>
+            <ExternalLink size={14} />
+          </a>
         </div>
       </div>
     </motion.div>

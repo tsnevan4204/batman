@@ -16,6 +16,7 @@ type View = 'input' | 'markets' | 'execution' | 'portfolio'
 
 export default function Home() {
   const { isConnected } = useAccount()
+  const SKIP_MATCH = process.env.NEXT_PUBLIC_SKIP_MATCH === 'true'
   const [mounted, setMounted] = useState(false)
   const [currentView, setCurrentView] = useState<View>('input')
   const [riskDescription, setRiskDescription] = useState('')
@@ -32,6 +33,22 @@ export default function Home() {
 
   // Handler for risk match
   const handleRiskMatch = (description: string, markets: any[], details: RiskDetails) => {
+    if (SKIP_MATCH) {
+      const fallbackMarket = markets[0] || {
+        marketId: 'demo-market',
+        title: 'Demo Hedge Market',
+        currentPrice: 0.5,
+      }
+      setRiskDescription(description || 'Demo risk context')
+      setMatchedMarkets(markets)
+      setRiskDetails(details)
+      setSelectedMarket(fallbackMarket)
+      setHedgeAmount('0.1')
+      setIsProcessing(false)
+      setCurrentView('execution')
+      return
+    }
+
     setIsProcessing(true)
     // Simulate processing time for animation
     setTimeout(() => {

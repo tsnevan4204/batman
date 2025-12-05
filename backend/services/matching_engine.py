@@ -284,37 +284,55 @@ Example response: [2, 5, 1, 8, 3]
         print("="*80 + "\n")
         return fallback_markets
 
+
+
+
 def match_risk(risk_description: str, top_k: int = 5) -> List[Dict]:
     """
     Main matching function: finds top markets for a risk description.
     Combines embedding similarity with LLM ranking.
+    Stub path returns a single mock market when MOCK_MATCHING=1 or OPENAI is unavailable.
     """
+    if os.getenv("MOCK_MATCHING", "0") == "1" or not os.getenv("OPENAI_API_KEY"):
+        print("[MATCH_RISK] Using mock matching path (no OpenAI or MOCK_MATCHING=1)")
+        return [
+            {
+                "marketId": "demo-market",
+                "title": "Demo Hedge Market (stubbed)",
+                "description": "Stubbed Polymarket option for demo/testing",
+                "category": "Demo",
+                "similarity": 1.0,
+                "currentPrice": 0.5,
+                "liquidity": None,
+                "rawMarket": {},
+            }
+        ]
+
     print("\n" + "="*80)
     print("[MATCH_RISK] ===== STARTING RISK MATCHING ======")
     print(f"[MATCH_RISK] Risk description: {risk_description}")
     print(f"[MATCH_RISK] Requested top {top_k} markets")
     print("="*80)
-    
+
     # Step 1: Find top markets by similarity
     print("[MATCH_RISK] Step 1: Finding top markets by similarity...")
     candidate_markets = find_top_markets_by_similarity(risk_description, top_n=15)
-    
+
     if not candidate_markets:
         print("[MATCH_RISK] ERROR: No candidate markets found from similarity search")
         print("="*80 + "\n")
         return []
-    
+
     print(f"[MATCH_RISK] Found {len(candidate_markets)} candidate markets from similarity search")
-    
+
     # Step 2: Use LLM to rank candidates
     print("[MATCH_RISK] Step 2: Ranking candidates with LLM...")
     ranked_markets = llm_rank_markets(risk_description, candidate_markets, top_k=top_k)
-    
+
     print("[MATCH_RISK] ===== MATCHING COMPLETE =====")
     print(f"[MATCH_RISK] Final result: {len(ranked_markets)} markets")
     for i, market in enumerate(ranked_markets, 1):
         print(f"  {i}. {market.get('title', 'Unknown')[:80]}...")
     print("="*80 + "\n")
-    
-    return ranked_markets
 
+    return ranked_markets

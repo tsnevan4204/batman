@@ -16,6 +16,8 @@ contract HedgeRegistry is Ownable {
         string marketId;
         uint256 amount;
         string tradeTxHash;
+        string bridgeTxHash;        // CCTP burn tx on source chain (Base)
+        bytes32 bridgeMessageHash;  // Circle message hash for attestation/claim
         uint256 timestamp;
         uint256 receiptTokenId;
     }
@@ -33,6 +35,8 @@ contract HedgeRegistry is Ownable {
         string marketId,
         uint256 amount,
         string tradeTxHash,
+        string bridgeTxHash,
+        bytes32 bridgeMessageHash,
         uint256 receiptTokenId
     );
 
@@ -44,7 +48,9 @@ contract HedgeRegistry is Ownable {
         bytes32 riskHash,
         string calldata marketId,
         uint256 amount,
-        string calldata tradeTxHash
+        string calldata tradeTxHash,
+        string calldata bridgeTxHash,
+        bytes32 bridgeMessageHash
     ) external returns (uint256 receiptTokenId) {
         uint256 hedgeId = _hedgeIdCounter;
         _hedgeIdCounter++;
@@ -55,6 +61,8 @@ contract HedgeRegistry is Ownable {
             marketId: marketId,
             amount: amount,
             tradeTxHash: tradeTxHash,
+            bridgeTxHash: bridgeTxHash,
+            bridgeMessageHash: bridgeMessageHash,
             timestamp: block.timestamp,
             receiptTokenId: 0
         });
@@ -82,6 +90,8 @@ contract HedgeRegistry is Ownable {
             marketId,
             amount,
             tradeTxHash,
+            bridgeTxHash,
+            bridgeMessageHash,
             receiptTokenId
         );
         
@@ -104,4 +114,3 @@ contract HedgeRegistry is Ownable {
         return _hedgeIdCounter;
     }
 }
-
