@@ -65,6 +65,12 @@ async def hedge_risk_endpoint(request: RiskRequest):
                 "outcomePrices": market.get("outcomePrices"),
                 "liquidity": market.get("liquidity"),
                 "volume": market.get("volume"),
+                "priceYes": market.get("priceYes"),
+                "priceNo": market.get("priceNo"),
+                "payoutYes": market.get("payoutYes"),
+                "payoutNo": market.get("payoutNo"),
+                "hedgePrice": market.get("hedgePrice"),
+                "hedgePayout": market.get("hedgePayout"),
             }
             formatted_markets.append(formatted)
             print(f"[API] Formatted market {i+1}: {formatted['title'][:60]}...")

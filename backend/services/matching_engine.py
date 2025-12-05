@@ -238,6 +238,31 @@ def _normalize_clob_token_ids(raw_ids, tokens_hint=None) -> List[str]:
     return []
 
 
+def _parse_outcome_prices(raw_prices) -> List[Optional[float]]:
+    """
+    Normalize outcomePrices into a float list [yes_price, no_price].
+    Accepts list, JSON string, comma-separated string, or None.
+    """
+    try:
+        if raw_prices is None:
+            return []
+        if isinstance(raw_prices, list):
+            return [float(p) for p in raw_prices]
+        if isinstance(raw_prices, str):
+            try:
+                parsed = json.loads(raw_prices)
+                if isinstance(parsed, list):
+                    return [float(p) for p in parsed]
+            except Exception:
+                cleaned = raw_prices.strip().strip("[]")
+                if cleaned:
+                    parts = [p.strip().strip('"').strip("'") for p in cleaned.split(",") if p.strip()]
+                    return [float(p) for p in parts if p]
+    except Exception:
+        return []
+    return []
+
+
 def _fallback_keyword_query(risk_description: str, max_terms: int = 6) -> str:
     """
     Lightweight keyword extractor as a backstop if LLM parsing fails.
@@ -431,6 +456,47 @@ def llm_select_markets(risk_description: str, markets: List[Dict], top_k: int = 
             if side_index >= len(clob_ids):
                 continue
 
+            prices = _parse_outcome_prices(
+                market.get("outcomePrices")
+                or market.get("example_prices")
+                or market.get("examplePrices")
+            )
+            price_yes = prices[0] if len(prices) > 0 else None
+            price_no = prices[1] if len(prices) > 1 else None
+
+            # Treat zero/negatives as missing (stale caches sometimes ship 0)
+            if price_yes is not None and price_yes <= 0:
+                price_yes = None
+            if price_no is not None and price_no <= 0:
+                price_no = None
+
+            # Additional fallbacks from market fields (bestAsk ~ yes ask, lastTradePrice)
+            if price_yes is None:
+                try:
+                    price_yes = float(market.get("bestAsk")) if market.get("bestAsk") not in (None, "") else None
+                except Exception:
+                    price_yes = None
+            if price_yes is None:
+                try:
+                    price_yes = float(market.get("lastTradePrice")) if market.get("lastTradePrice") not in (None, "") else None
+                except Exception:
+                    price_yes = None
+
+            # If we only have yes, derive no as complement; vice versa
+            if price_yes is None and price_no is not None:
+                price_yes = max(0.0, min(1.0, 1 - price_no))
+            if price_no is None and price_yes is not None:
+                price_no = max(0.0, min(1.0, 1 - price_yes))
+
+            # Final neutral defaults
+            if price_yes is None:
+                price_yes = 0.5
+            if price_no is None:
+                price_no = max(0.0, min(1.0, 1 - price_yes))
+
+            hedge_price = price_yes if side_raw == "yes" else price_no
+            hedge_payout = 1.0  # Polymarket binary markets pay 1 USDC per share at resolution
+
             selected_token_id = clob_ids[side_index]
             market_obj = {
                 "marketId": market_id,
@@ -448,6 +514,13 @@ def llm_select_markets(risk_description: str, markets: List[Dict], top_k: int = 
                 "outcomePrices": market.get("outcomePrices"),
                 "liquidity": market.get("liquidity"),
                 "volume": market.get("volume"),
+                "priceYes": price_yes,
+                "priceNo": price_no,
+                "payoutYes": hedge_payout,
+                "payoutNo": hedge_payout,
+                "hedgePrice": hedge_price,
+                "hedgePayout": hedge_payout,
+                "currentPrice": hedge_price,
             }
             results.append(market_obj)
 

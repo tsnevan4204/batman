@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import RiskInput, { RiskDetails } from '@/components/RiskInput'
 import MatchedMarkets from '@/components/MatchedMarkets'
 import HedgeExecution from '@/components/HedgeExecution'
+import { HedgePlan } from '@/components/StrategyModal'
 import Portfolio from '@/components/Portfolio'
 import Sidebar from '@/components/Sidebar'
 import ProcessingOverlay from '@/components/ProcessingOverlay'
@@ -21,8 +22,7 @@ export default function Home() {
   const [riskDescription, setRiskDescription] = useState('')
   const [riskDetails, setRiskDetails] = useState<RiskDetails | null>(null)
   const [matchedMarkets, setMatchedMarkets] = useState<any[]>([])
-  const [selectedMarket, setSelectedMarket] = useState<any>(null)
-  const [hedgeAmount, setHedgeAmount] = useState('')
+  const [hedgePlan, setHedgePlan] = useState<HedgePlan | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
 
   // Prevent hydration mismatch for client-only wallet components
@@ -182,20 +182,18 @@ export default function Home() {
                   <MatchedMarkets
                     riskDetails={riskDetails}
                     markets={matchedMarkets}
-                    onSelectMarket={(market, amount) => {
-                      setSelectedMarket(market)
-                      setHedgeAmount(amount)
+                    onPlanReady={(plan) => {
+                      setHedgePlan(plan)
                       setCurrentView('execution')
                     }}
                     onBack={() => setCurrentView('input')}
                   />
                 )}
 
-                {currentView === 'execution' && (
+                {currentView === 'execution' && hedgePlan && (
                   <HedgeExecution
                     riskDescription={riskDescription}
-                    market={selectedMarket}
-                    amount={hedgeAmount}
+                    plan={hedgePlan}
                     onComplete={() => {
                       setCurrentView('portfolio')
                     }}
