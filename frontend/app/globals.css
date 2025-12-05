@@ -100,3 +100,25 @@ textarea::-webkit-scrollbar-thumb:hover {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
+
+/* Force Light Theme for OnchainKit */
+/* Override any dark mode preferences or defaults */
+:root, [data-ock-theme], [data-ock-theme="default-dark"], [data-ock-theme="base-dark"], [data-ock-theme="cyberpunk"] {
+  --ock-background: #ffffff !important;
+  --ock-background-hover: #f1f5f9 !important;
+  --ock-background-active: #e2e8f0 !important;
+  
+  --ock-foreground: #0f172a !important; /* Slate 900 */
+  --ock-foreground-muted: #64748b !important; /* Slate 500 */
+  
+  --ock-text-primary: #0f172a !important;
+  
+  --ock-border: #e2e8f0 !important;
+  --ock-line: #e2e8f0 !important;
+}
+
+/* Specifically ensure dropdowns and cards use white background */
+[data-testid="ockDropdown"], .ock-dropdown {
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+}
