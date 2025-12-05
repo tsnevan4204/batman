@@ -30,10 +30,10 @@ def fetch_markets() -> List[Dict]:
         try:
             response = requests.get(gamma_url, timeout=60, params={"active": "true"})
             response.raise_for_status()
-
+            
             raw_data = response.json()
             print(f"[POLYMARKET] Gamma API response type: {type(raw_data)}")
-
+            
             # Handle different response structures
             if isinstance(raw_data, dict):
                 print(f"[POLYMARKET] Gamma response keys: {list(raw_data.keys())}")
@@ -55,7 +55,7 @@ def fetch_markets() -> List[Dict]:
             else:
                 print(f"[POLYMARKET] Unexpected Gamma response type: {type(raw_data)}")
                 markets = []
-
+            
             if markets:
                 all_markets.extend(markets)
                 print(f"[POLYMARKET] Added {len(markets)} markets from Gamma API")
@@ -71,17 +71,17 @@ def fetch_markets() -> List[Dict]:
         try:
             clob_response = requests.get(clob_url, timeout=30)
             clob_response.raise_for_status()
-
+            
             clob_data = clob_response.json()
             print(f"[POLYMARKET] CLOB API response type: {type(clob_data)}")
-
+            
             if isinstance(clob_data, dict) and "data" in clob_data:
                 clob_markets = clob_data["data"]
             elif isinstance(clob_data, list):
                 clob_markets = clob_data
             else:
                 clob_markets = []
-
+            
             if clob_markets:
                 print(f"[POLYMARKET] Found {len(clob_markets)} CLOB markets for merging")
                 # Merge CLOB markets (they may have liquidity/orderbook info)
