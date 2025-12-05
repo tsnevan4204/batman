@@ -16,14 +16,9 @@ import { useAccount } from 'wagmi'
 import { ethers } from 'ethers'
 import axios from 'axios'
 
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 const HEDGE_REGISTRY_ADDRESS = process.env.NEXT_PUBLIC_HEDGE_REGISTRY_ADDRESS || ''
-// Using a Polymarket API endpoint (Gamma API or similar public endpoint)
-// For this example, we will simulate fetching top active markets or use a known public endpoint if available.
-// Since we don't have a dedicated proxy, we'll fetch some top markets from our backend if possible or mock with real-looking data.
-// Assuming the user wants "real" data, we'll try to fetch from the CLOB API or similar if CORS allows, otherwise we will stick to a more realistic mock updated via an interval or our backend.
-
-// To truly get "information from markets on polymarket", we should query the Gamma API.
-const POLYMARKET_GAMMA_API = 'https://gamma-api.polymarket.com/events?limit=5&active=true&closed=false&order=volume:desc'
+const POLYMARKET_TOP_API = `${API_BASE_URL}/api/polymarket-top`
 
 interface SidebarProps {
   currentView: string
@@ -73,11 +68,14 @@ export default function Sidebar({ currentView, onNavigate }: SidebarProps) {
     const fetchMarketStats = async () => {
       try {
         setLoadingStats(true)
-        const response = await axios.get(POLYMARKET_GAMMA_API)
-        if (response.data) {
-          // Map the response to our stats format
-          // Note: The actual structure depends on Gamma API. This is a best-effort mapping.
-          const stats = response.data.slice(0, 4).map((event: any) => {
+        const response = await axios.get(POLYMARKET_TOP_API, {
+          params: { limit: 5 },
+        })
+        const events = response.data?.events || response.data || []
+        const eventsArray = Array.isArray(events) ? events : []
+        if (eventsArray.length > 0) {
+          // Map the response to our stats format via backend proxy
+          const stats = eventsArray.slice(0, 4).map((event: any) => {
              // Calculate a "change" or "vol" proxy if available, otherwise show volume
              const volume = event.volume ? `$${(event.volume / 1000).toFixed(1)}k` : 'N/A'
              return {

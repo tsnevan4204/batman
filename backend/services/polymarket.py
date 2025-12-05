@@ -9,6 +9,48 @@ from typing import List, Dict, Optional
 GAMMA_API_BASE = "https://gamma-api.polymarket.com"
 CLOB_API_BASE = "https://clob.polymarket.com"
 
+def fetch_top_events(limit: int = 5, active: bool | None = True, closed: bool | None = False, order: str = "volume:desc") -> List[Dict]:
+    """
+    Fetch top Polymarket events from Gamma API. Used by the backend proxy to avoid
+    client-side CORS issues.
+    """
+    url = f"{GAMMA_API_BASE}/events"
+    params: Dict[str, str | int] = {"limit": limit, "order": order}
+    if active is not None:
+        params["active"] = str(active).lower()
+    if closed is not None:
+        params["closed"] = str(closed).lower()
+
+    print(f"[POLYMARKET] Fetching top events from Gamma: {url} params={params}")
+    try:
+        resp = requests.get(url, params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+
+        # Gamma responses have varied shapes; normalize to a list of events.
+        if isinstance(data, dict):
+            if "data" in data:
+                events = data["data"]
+            elif "events" in data:
+                events = data["events"]
+            elif "results" in data:
+                events = data["results"]
+            else:
+                # If the dict itself is a single event, wrap it
+                events = [data] if data else []
+        elif isinstance(data, list):
+            events = data
+        else:
+            events = []
+
+        print(f"[POLYMARKET] Retrieved {len(events)} events from Gamma")
+        return events[:limit]
+    except Exception as e:
+        print(f"[POLYMARKET] ERROR fetching top events: {e}")
+        import traceback
+        print(f"[POLYMARKET] Traceback: {traceback.format_exc()}")
+        return []
+
 def search_events(query: str, limit_per_type: int = 200) -> Dict:
     """
     Call Polymarket public-search to fetch events and markets for a query.
