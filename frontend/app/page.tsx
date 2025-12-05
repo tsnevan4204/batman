@@ -1,8 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAccount } from 'wagmi'
-import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { motion, AnimatePresence } from 'framer-motion'
 import RiskInput, { RiskDetails } from '@/components/RiskInput'
 import MatchedMarkets from '@/components/MatchedMarkets'
@@ -10,11 +9,14 @@ import HedgeExecution from '@/components/HedgeExecution'
 import Portfolio from '@/components/Portfolio'
 import Sidebar from '@/components/Sidebar'
 import ProcessingOverlay from '@/components/ProcessingOverlay'
+import { Wallet, ConnectWallet, WalletDropdown, WalletDropdownLink, WalletDropdownDisconnect } from '@coinbase/onchainkit/wallet';
+import { Address, Avatar, Name, Identity, EthBalance } from '@coinbase/onchainkit/identity';
 
 type View = 'input' | 'markets' | 'execution' | 'portfolio'
 
 export default function Home() {
   const { isConnected } = useAccount()
+  const [mounted, setMounted] = useState(false)
   const [currentView, setCurrentView] = useState<View>('input')
   const [riskDescription, setRiskDescription] = useState('')
   const [riskDetails, setRiskDetails] = useState<RiskDetails | null>(null)
@@ -22,6 +24,11 @@ export default function Home() {
   const [selectedMarket, setSelectedMarket] = useState<any>(null)
   const [hedgeAmount, setHedgeAmount] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
+
+  // Prevent hydration mismatch for client-only wallet components
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   // Handler for risk match
   const handleRiskMatch = (description: string, markets: any[], details: RiskDetails) => {
@@ -36,8 +43,19 @@ export default function Home() {
     }, 4000) // 4 seconds of animation glory
   }
 
+  if (!mounted) {
+    return (
+      <main className="min-h-screen bg-checkerboard flex items-center justify-center">
+        <div className="flex items-center gap-3 text-gray-500">
+          <div className="spinner-ring" />
+          <span>Loading experience...</span>
+        </div>
+      </main>
+    )
+  }
+
   return (
-    <main className="min-h-screen bg-slate-50">
+    <main className="min-h-screen bg-checkerboard">
       <Sidebar 
         currentView={currentView} 
         onNavigate={(view) => setCurrentView(view)} 
@@ -54,7 +72,28 @@ export default function Home() {
                <h1 className="text-2xl font-bold text-gray-900">Hedger</h1>
             </div>
             <div className="ml-auto">
-              <ConnectButton showBalance={false} />
+              <div className="flex justify-end">
+                <div className="flex justify-end">
+                  <Wallet>
+                    <ConnectWallet>
+                      <Avatar className="h-6 w-6" />
+                      <Name />
+                    </ConnectWallet>
+                    <WalletDropdown>
+                      <Identity className="px-4 pt-3 pb-2" hasCopyAddressOnClick>
+                        <Avatar />
+                        <Name />
+                        <Address />
+                        <EthBalance />
+                      </Identity>
+                      <WalletDropdownLink icon="wallet" href="https://keys.coinbase.com">
+                        Wallet
+                      </WalletDropdownLink>
+                      <WalletDropdownDisconnect />
+                    </WalletDropdown>
+                  </Wallet>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -78,7 +117,26 @@ export default function Home() {
                   Connect your wallet to access onchain prediction markets tailored to your business exposure.
                 </p>
                 <div className="scale-110">
-                  <ConnectButton />
+                  <div className="flex gap-2 justify-center">
+                    <Wallet>
+                      <ConnectWallet>
+                        <Avatar className="h-6 w-6" />
+                        <Name />
+                      </ConnectWallet>
+                      <WalletDropdown>
+                        <Identity className="px-4 pt-3 pb-2" hasCopyAddressOnClick>
+                          <Avatar />
+                          <Name />
+                          <Address />
+                          <EthBalance />
+                        </Identity>
+                        <WalletDropdownLink icon="wallet" href="https://keys.coinbase.com">
+                          Wallet
+                        </WalletDropdownLink>
+                        <WalletDropdownDisconnect />
+                      </WalletDropdown>
+                    </Wallet>
+                  </div>
                 </div>
               </motion.div>
             ) : (
@@ -91,8 +149,29 @@ export default function Home() {
               >
                 {currentView === 'input' && (
                   <div className="max-w-4xl mx-auto">
-                    <h1 className="text-3xl font-bold text-gray-900 mb-2">New Risk Assessment</h1>
-                    <p className="text-gray-500 mb-8">Define your business context to identify relevant market hedges.</p>
+                    
+                    {/* Digital Asset Box Title */}
+                    <div className="relative mb-8 group">
+                        <div className="absolute -inset-1 bg-gradient-to-r from-hedge-green/20 to-emerald-500/20 rounded-lg blur opacity-75 group-hover:opacity-100 transition duration-1000 group-hover:duration-200"></div>
+                        <div className="relative bg-white ring-1 ring-gray-900/5 rounded-lg leading-none flex items-top justify-start space-x-6">
+                            <div className="space-y-2 p-8 w-full bg-gradient-to-br from-white to-slate-50 rounded-lg border border-slate-100">
+                                <div className="flex items-center space-x-3 mb-2">
+                                    <div className="h-2 w-2 rounded-full bg-hedge-green animate-pulse"></div>
+                                    <h1 className="text-3xl font-bold text-gray-900 tracking-tight">New Risk Assessment</h1>
+                                </div>
+                                <p className="text-slate-500">Define your business context to identify relevant market hedges.</p>
+                                
+                                {/* Decorative Corner Accents */}
+                                <div className="absolute top-0 right-0 p-3">
+                                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-hedge-green/30">
+                                        <path d="M1 1H6V3H3V6H1V1Z" fill="currentColor"/>
+                                        <path d="M14 1H19V6H17V3H14V1Z" fill="currentColor"/>
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <div className="glass-card rounded-2xl p-1">
                        <RiskInput onMatch={handleRiskMatch} />
                     </div>
