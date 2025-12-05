@@ -3,19 +3,122 @@
 @tailwind utilities;
 
 :root {
-  --foreground-rgb: 255, 255, 255;
-  --background-start-rgb: 26, 26, 46;
-  --background-end-rgb: 26, 26, 46;
+  --foreground-rgb: 15, 23, 42; /* Slate 900 */
+  --background-rgb: 248, 250, 252; /* Slate 50 */
 }
 
 body {
   color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
+  background: rgb(var(--background-rgb));
   min-height: 100vh;
+  font-family: 'Inter', sans-serif;
+  overflow-x: hidden;
 }
 
+/* Checkerboard Background */
+.bg-checkerboard {
+  background-color: #f8fafc;
+  background-image:
+    linear-gradient(45deg, #f1f5f9 25%, transparent 25%),
+    linear-gradient(-45deg, #f1f5f9 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #f1f5f9 75%),
+    linear-gradient(-45deg, transparent 75%, #f1f5f9 75%);
+  background-size: 40px 40px;
+  background-position: 0 0, 0 20px, 20px -20px, -20px 0px;
+}
+
+/* Finance Grid Background - keeping as fallback or overlay if needed */
+.bg-grid-pattern {
+  background-image: 
+    linear-gradient(rgba(15, 169, 88, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 169, 88, 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* Floating Particles (simple CSS version, enhanced with Framer Motion in components) */
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+  100% { transform: translateY(0px); }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+/* Glassmorphism Utilities */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(226, 232, 240, 0.6);
+  transition: all 0.3s ease;
+}
+
+.glass-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px -8px rgba(15, 169, 88, 0.15);
+  border-color: rgba(15, 169, 88, 0.3);
+}
+
+/* Custom scrollbar for textareas */
+textarea::-webkit-scrollbar {
+  width: 8px;
+}
+
+textarea::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+textarea::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+textarea::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Loader Animations */
+.spinner-ring {
+  border: 3px solid rgba(15, 169, 88, 0.1);
+  border-left-color: #0FA958;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Force Light Theme for OnchainKit */
+/* Override any dark mode preferences or defaults */
+:root, [data-ock-theme], [data-ock-theme="default-dark"], [data-ock-theme="base-dark"], [data-ock-theme="cyberpunk"] {
+  --ock-background: #ffffff !important;
+  --ock-background-hover: #f1f5f9 !important;
+  --ock-background-active: #e2e8f0 !important;
+  
+  --ock-foreground: #0f172a !important; /* Slate 900 */
+  --ock-foreground-muted: #64748b !important; /* Slate 500 */
+  
+  --ock-text-primary: #0f172a !important;
+  
+  --ock-border: #e2e8f0 !important;
+  --ock-line: #e2e8f0 !important;
+}
+
+/* Specifically ensure dropdowns and cards use white background */
+[data-testid="ockDropdown"], .ock-dropdown {
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+}

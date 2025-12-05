@@ -559,16 +559,16 @@
             "createdBy": "15",
             "updatedBy": "17",
             "createdAt": "2023-04-11T17:58:52.163Z",
-            "updatedAt": "2025-12-05T09:09:57.328641Z",
+            "updatedAt": "2025-12-05T16:32:49.971204Z",
             "commentsEnabled": false,
             "competitive": "0",
             "volume24hr": 0,
-            "volume": 3099222.680214,
-            "liquidity": 907248.94941,
+            "volume": 5033718.703797,
+            "liquidity": 1184376.13066,
             "startDate": "2021-01-01T17:00:00Z",
             "pythTokenID": "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
             "cgAssetName": "bitcoin",
-            "commentCount": 2785
+            "commentCount": 2792
           }
         ],
         "cyom": false,
@@ -1635,16 +1635,16 @@
             "createdBy": "15",
             "updatedBy": "17",
             "createdAt": "2023-04-11T17:58:52.163Z",
-            "updatedAt": "2025-12-05T09:09:57.328641Z",
+            "updatedAt": "2025-12-05T16:32:49.971204Z",
             "commentsEnabled": false,
             "competitive": "0",
             "volume24hr": 0,
-            "volume": 3099222.680214,
-            "liquidity": 907248.94941,
+            "volume": 5033718.703797,
+            "liquidity": 1184376.13066,
             "startDate": "2021-01-01T17:00:00Z",
             "pythTokenID": "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
             "cgAssetName": "bitcoin",
-            "commentCount": 2785
+            "commentCount": 2792
           }
         ],
         "cyom": false,

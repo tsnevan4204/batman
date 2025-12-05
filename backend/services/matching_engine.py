@@ -1,11 +1,44 @@
+import json
 import os
+import re
+import time
+from datetime import datetime, timedelta, timezone
+from typing import Dict, List, Optional, Tuple
+
 import numpy as np
-from typing import List, Dict, Optional
+
 from openai import OpenAI
-from services.polymarket import fetch_markets, load_markets, build_market_text
+
+from services.polymarket import search_events
 
 # Lazy initialization of OpenAI client
 _client: Optional[OpenAI] = None
+
+# Minimal stopword list to keep search queries tight
+STOPWORDS = {
+    "the",
+    "and",
+    "or",
+    "a",
+    "an",
+    "of",
+    "to",
+    "in",
+    "for",
+    "on",
+    "at",
+    "my",
+    "will",
+    "with",
+    "about",
+    "this",
+    "that",
+    "is",
+    "are",
+    "was",
+    "were",
+}
+
 
 def get_openai_client() -> OpenAI:
     """Get or create OpenAI client instance."""
@@ -14,307 +47,472 @@ def get_openai_client() -> OpenAI:
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise ValueError("OPENAI_API_KEY environment variable not set")
-        # Create client - try simple initialization first
         try:
             _client = OpenAI(api_key=api_key)
         except TypeError as e:
-            # If proxies error, create explicit httpx client
             if "proxies" in str(e):
-                print("[OPENAI_CLIENT] Encountered proxies error, creating explicit httpx client...")
+                print("[OPENAI_CLIENT] proxies error, creating explicit httpx client...")
                 import httpx
+
                 http_client = httpx.Client(timeout=60.0)
                 _client = OpenAI(api_key=api_key, http_client=http_client)
             else:
                 raise
     return _client
 
-def embed_text(text: str, debug_label: str = "text") -> List[float]:
-    """Generate embedding for a text using OpenAI."""
+
+def _chat_with_retry(
+    messages: List[Dict[str, str]],
+    model: str = "gpt-4o-mini",
+    temperature: float = 0.2,
+    max_tokens: int = 200,
+    attempts: int = 3,
+    delay_seconds: float = 1.5,
+) -> Optional[str]:
+    """
+    Call OpenAI chat with simple retries to handle transient failures.
+    Returns response content string or None.
+    """
+    last_err = None
+    client = get_openai_client()
+    for attempt in range(1, attempts + 1):
+        try:
+            resp = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            return resp.choices[0].message.content.strip()
+        except Exception as e:
+            last_err = e
+            print(f"[OPENAI_RETRY] attempt {attempt}/{attempts} failed: {e}")
+            if attempt < attempts:
+                time.sleep(delay_seconds * attempt)
+    print(f"[OPENAI_RETRY] giving up after {attempts} attempts: {last_err}")
+    return None
+
+
+def _parse_json_content(raw: str) -> Optional[dict]:
+    """
+    Parse JSON from an LLM response that may include markdown fences.
+    Accepts plain JSON, ```json ...```, or ``` ... ```.
+    """
+    if raw is None:
+        return None
+    text = raw.strip()
+    # Strip ```json ... ``` or ``` ... ```
+    if text.startswith("```"):
+        # remove leading fence
+        text = text.strip("`")
+        # remove optional language tag
+        if text.startswith("json"):
+            text = text[len("json") :].lstrip()
+        # Everything after the first newline should be JSON
+        parts = text.split("\n", 1)
+        text = parts[1] if len(parts) > 1 else parts[0]
+        # Remove trailing fence if present
+        text = text.rsplit("```", 1)[0].strip()
+
+    # Try direct JSON load
     try:
-        print(f"[EMBEDDING] Generating embedding for {debug_label} (length: {len(text)} chars)")
+        return json.loads(text)
+    except Exception:
+        # Try to extract first JSON object with a regex fallback
+        import re
+
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group())
+            except Exception:
+                return None
+    return None
+
+
+def embed_text(text: str, debug_label: str = "text") -> Optional[List[float]]:
+    """Generate embedding for text."""
+    try:
         client = get_openai_client()
-        response = client.embeddings.create(
+        resp = client.embeddings.create(
             model="text-embedding-3-small",
-            input=text
+            input=text,
         )
-        embedding = response.data[0].embedding
-        print(f"[EMBEDDING] Successfully generated embedding (dim: {len(embedding)})")
-        return embedding
+        return resp.data[0].embedding
     except Exception as e:
-        print(f"[EMBEDDING] ERROR generating embedding for {debug_label}: {e}")
-        import traceback
-        print(f"[EMBEDDING] Traceback: {traceback.format_exc()}")
+        print(f"[EMBED] failed for {debug_label}: {e}")
         return None
 
-def compute_cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
-    """Compute cosine similarity between two vectors."""
-    vec1 = np.array(vec1)
-    vec2 = np.array(vec2)
-    dot_product = np.dot(vec1, vec2)
-    norm1 = np.linalg.norm(vec1)
-    norm2 = np.linalg.norm(vec2)
-    if norm1 == 0 or norm2 == 0:
+
+def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
+    v1 = np.array(vec1)
+    v2 = np.array(vec2)
+    denom = np.linalg.norm(v1) * np.linalg.norm(v2)
+    if denom == 0:
         return 0.0
-    return dot_product / (norm1 * norm2)
+    return float(np.dot(v1, v2) / denom)
 
-def find_top_markets_by_similarity(
-    risk_description: str,
-    top_n: int = 15
-) -> List[Dict]:
+
+def _default_start_date() -> datetime:
     """
-    Find top N markets by embedding similarity.
-    Returns list of markets with similarity scores.
+    Default start date: beginning of today (UTC) minus 12 hours.
     """
-    print("\n" + "="*80)
-    print("[MATCHING] Starting similarity search...")
-    print(f"[MATCHING] Risk description: {risk_description[:200]}...")
-    print(f"[MATCHING] Looking for top {top_n} markets")
-    
-    # Fetch/load markets
-    print("[MATCHING] Fetching markets...")
-    markets = fetch_markets()
-    if not markets:
-        print("[MATCHING] No markets from fetch, loading from cache...")
-        markets = load_markets()
-    
-    if not markets:
-        print("[MATCHING] ERROR: No markets available!")
-        return []
-    
-    print(f"[MATCHING] Processing {len(markets)} markets")
-    
-    # Generate embedding for risk description
-    print("[MATCHING] Generating embedding for risk description...")
-    risk_embedding = embed_text(risk_description, "risk_description")
-    if not risk_embedding:
-        print("[MATCHING] ERROR: Failed to generate risk embedding")
-        return []
-    print(f"[MATCHING] Risk embedding generated successfully")
-    
-    # Generate embeddings for all markets and compute similarities
-    print("[MATCHING] Computing similarities for all markets...")
-    market_similarities = []
-    processed = 0
-    skipped = 0
-    
-    for i, market in enumerate(markets):
-        if (i + 1) % 100 == 0:
-            print(f"[MATCHING] Processed {i + 1}/{len(markets)} markets...")
-        
-        market_text = build_market_text(market)
-        if not market_text or len(market_text.strip()) < 10:
-            skipped += 1
-            continue
-        
-        market_embedding = embed_text(market_text, f"market_{i}")
-        if not market_embedding:
-            skipped += 1
-            continue
-        
-        similarity = compute_cosine_similarity(risk_embedding, market_embedding)
-        market_similarities.append({
-            "market": market,
-            "similarity": similarity
-        })
-        processed += 1
-    
-    print(f"[MATCHING] Processed {processed} markets, skipped {skipped}")
-    
-    if not market_similarities:
-        print("[MATCHING] ERROR: No valid similarities computed")
-        return []
-    
-    # Sort by similarity and return top N
-    market_similarities.sort(key=lambda x: x["similarity"], reverse=True)
-    top_markets = market_similarities[:top_n]
-    
-    print(f"[MATCHING] Top {len(top_markets)} markets by similarity:")
-    for i, item in enumerate(top_markets[:5], 1):
-        market = item["market"]
-        question = market.get('question', market.get('title', 'Unknown'))[:80]
-        similarity = item["similarity"]
-        print(f"  {i}. Similarity: {similarity:.4f} | {question}")
-    
-    print("="*80 + "\n")
-    return top_markets
+    now = datetime.now(timezone.utc)
+    start_today = datetime(year=2025, month=1, day=1, tzinfo=timezone.utc)
+    return start_today - timedelta(hours=12)
 
-def llm_rank_markets(
-    risk_description: str,
-    candidate_markets: List[Dict],
-    top_k: int = 5
-) -> List[Dict]:
-    """
-    Use LLM to rank candidate markets and return top K.
-    """
-    print("\n" + "="*80)
-    print("[LLM_RANKING] Starting LLM ranking...")
-    print(f"[LLM_RANKING] Risk description: {risk_description[:200]}...")
-    print(f"[LLM_RANKING] Candidate markets: {len(candidate_markets)}")
-    print(f"[LLM_RANKING] Requesting top {top_k} ranked markets")
-    
-    if not candidate_markets:
-        print("[LLM_RANKING] ERROR: No candidate markets provided")
-        return []
-    
-    # Build prompt for LLM
-    print("[LLM_RANKING] Building prompt with candidate markets...")
-    market_descriptions = []
-    for i, item in enumerate(candidate_markets):
-        market = item["market"]
-        market_id = market.get("id", market.get("market_id", market.get("condition_id", f"market_{i}")))
-        title = market.get("question", market.get("title", "Unknown"))
-        description = market.get("description", "")
-        similarity = item.get("similarity", 0)
-        
-        market_descriptions.append(
-            f"{i+1}. Market ID: {market_id}\n"
-            f"   Title: {title}\n"
-            f"   Description: {description[:200]}...\n"
-            f"   Similarity Score: {similarity:.4f}\n"
-        )
-        print(f"[LLM_RANKING] Candidate {i+1}: {title[:60]}... (similarity: {similarity:.4f})")
-    
-    prompt = f"""You are a risk hedging advisor. A business wants to hedge the following risk:
 
-RISK DESCRIPTION:
-{risk_description}
-
-Here are candidate prediction markets from Polymarket that might be suitable for hedging this risk:
-
-{chr(10).join(market_descriptions)}
-
-Please rank these markets from most relevant to least relevant for hedging the described risk. Consider:
-1. How directly the market outcome relates to the business risk
-2. Whether hedging this market would effectively protect against the risk
-3. The clarity and specificity of the market
-
-Return ONLY a JSON array of market indices (1-indexed) in order of relevance, most relevant first. Format: [1, 3, 5, ...]
-
-Example response: [2, 5, 1, 8, 3]
-"""
-    
+def _parse_iso_date(value: Optional[str]) -> Optional[datetime]:
+    if not value or not isinstance(value, str):
+        return None
     try:
-        print("[LLM_RANKING] Calling OpenAI API...")
-        client = get_openai_client()
-        response = client.chat.completions.create(
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def _serialize_date(dt: Optional[datetime]) -> Optional[str]:
+    if not dt:
+        return None
+    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _build_market_text(market: Dict) -> str:
+    """
+    Concise text for embeddings: question/title/description + event info.
+    """
+    parts = []
+    q = market.get("question") or market.get("title")
+    if q:
+        parts.append(q)
+    desc = market.get("description")
+    if desc:
+        parts.append(desc)
+    ev_title = market.get("event_title")
+    if ev_title:
+        parts.append(f"Event: {ev_title}")
+    ev_desc = market.get("event_description")
+    if ev_desc:
+        parts.append(ev_desc)
+    return " ".join(parts)
+
+
+def _normalize_clob_token_ids(raw_ids, tokens_hint=None) -> List[str]:
+    """
+    Normalize token identifiers to a string list.
+    Accepts lists, JSON strings, or comma-separated strings.
+    Falls back to tokens array if provided.
+    """
+    if isinstance(raw_ids, list):
+        ids = [str(x) for x in raw_ids if x is not None]
+        if ids:
+            return ids
+
+    if isinstance(raw_ids, str):
+        # Try JSON first
+        try:
+            parsed = json.loads(raw_ids)
+            if isinstance(parsed, list):
+                ids = [str(x) for x in parsed if x is not None]
+                if ids:
+                    return ids
+        except Exception:
+            pass
+
+        cleaned = raw_ids.strip().strip("[]")
+        if cleaned:
+            parts = [p.strip().strip('"').strip("'") for p in cleaned.split(",") if p.strip()]
+            ids = [p for p in parts if p]
+            if ids:
+                return ids
+
+    if tokens_hint and isinstance(tokens_hint, list):
+        ids = []
+        for t in tokens_hint:
+            token_id = t.get("token_id") or t.get("id")
+            if token_id:
+                ids.append(str(token_id))
+        if ids:
+            return ids
+
+    return []
+
+
+def _fallback_keyword_query(risk_description: str, max_terms: int = 6) -> str:
+    """
+    Lightweight keyword extractor as a backstop if LLM parsing fails.
+    """
+    tokens = re.findall(r"[A-Za-z0-9%]+", risk_description.lower())
+    keywords = [t for t in tokens if t not in STOPWORDS]
+    return " ".join(keywords[:max_terms]) if keywords else risk_description[:100]
+
+
+def build_search_plan(risk_description: str) -> Tuple[str, datetime, Optional[datetime]]:
+    """
+    Use LLM to derive a concise search query and optional start/end dates.
+    Returns (query, start_date, end_date).
+    """
+    prompt = f"""
+You help pick Polymarket search queries for hedging risk.
+Return a compact JSON object with keys: query, start_date, end_date.
+- query: strip filler words, keep only core nouns/verbs (proper nouns ok).
+- start_date/end_date: ISO8601 (Z). If date not mentioned, leave empty string.
+- If only a broad timeframe is implied (e.g., "next quarter"), leave fields empty.
+- Do not add explanations. Only JSON.
+
+Risk description:
+{risk_description}
+"""
+    try:
+        content = _chat_with_retry(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You are a risk hedging advisor. Return only valid JSON arrays."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3,
-            max_tokens=200
-        )
-        
-        result_text = response.choices[0].message.content.strip()
-        print(f"[LLM_RANKING] LLM response: {result_text[:200]}...")
-        
-        # Extract JSON array from response
-        import re
-        json_match = re.search(r'\[[\d,\s]+\]', result_text)
-        if json_match:
-            import json
-            ranked_indices = json.loads(json_match.group())
-            print(f"[LLM_RANKING] Parsed ranked indices: {ranked_indices}")
-            
-            # Convert to 0-indexed and get top K
-            ranked_indices = [idx - 1 for idx in ranked_indices[:top_k] if 0 <= idx - 1 < len(candidate_markets)]
-            print(f"[LLM_RANKING] Valid ranked indices (0-indexed): {ranked_indices}")
-            
-            # Return ranked markets with additional metadata
-            ranked_markets = []
-            for idx in ranked_indices:
-                market_item = candidate_markets[idx]
-                market = market_item["market"]
-                market_obj = {
-                    "marketId": market.get("id", market.get("market_id", market.get("condition_id", ""))),
-                    "title": market.get("question", market.get("title", "Unknown")),
-                    "description": market.get("description", ""),
-                    "category": market.get("category", ""),
-                    "similarity": market_item["similarity"],
-                    "currentPrice": market.get("price", market.get("probability", None)),
-                    "liquidity": market.get("liquidity", None),
-                    "rawMarket": market  # Include full market data
-                }
-                ranked_markets.append(market_obj)
-                print(f"[LLM_RANKING] Ranked market: {market_obj['title'][:60]}...")
-            
-            print(f"[LLM_RANKING] Successfully ranked {len(ranked_markets)} markets")
-            print("="*80 + "\n")
-            return ranked_markets
-        else:
-            print("[LLM_RANKING] WARNING: Could not parse JSON from LLM response, using similarity fallback")
-            # Fallback: return top candidates by similarity
-            fallback_markets = [
                 {
-                    "marketId": item["market"].get("id", item["market"].get("market_id", item["market"].get("condition_id", ""))),
-                    "title": item["market"].get("question", item["market"].get("title", "Unknown")),
-                    "description": item["market"].get("description", ""),
-                    "category": item["market"].get("category", ""),
-                    "similarity": item["similarity"],
-                    "currentPrice": item["market"].get("price", item["market"].get("probability", None)),
-                    "liquidity": item["market"].get("liquidity", None),
-                    "rawMarket": item["market"]
-                }
-                for item in candidate_markets[:top_k]
-            ]
-            print(f"[LLM_RANKING] Returning {len(fallback_markets)} markets (similarity fallback)")
-            print("="*80 + "\n")
-            return fallback_markets
+                    "role": "system",
+                    "content": "Return only valid JSON with keys: query, start_date, end_date. Make sure to return ONLY the json object, no ticks, labels that it is a json, etc.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+            max_tokens=200,
+        )
+        if content is None:
+            raise RuntimeError("LLM returned no content after retries")
+        print(f"[SEARCH_PLAN] LLM raw response: {content}")
+        plan = _parse_json_content(content)
+        if not plan:
+            raise ValueError("LLM response did not contain valid JSON")
     except Exception as e:
-        print(f"[LLM_RANKING] ERROR in LLM ranking: {e}")
-        import traceback
-        print(f"[LLM_RANKING] Traceback: {traceback.format_exc()}")
-        # Fallback to similarity-based ranking
-        print("[LLM_RANKING] Falling back to similarity-based ranking")
-        fallback_markets = [
-            {
-                "marketId": item["market"].get("id", item["market"].get("market_id", item["market"].get("condition_id", ""))),
-                "title": item["market"].get("question", item["market"].get("title", "Unknown")),
-                "description": item["market"].get("description", ""),
-                "category": item["market"].get("category", ""),
-                "similarity": item["similarity"],
-                "currentPrice": item["market"].get("price", item["market"].get("probability", None)),
-                "liquidity": item["market"].get("liquidity", None),
-                "rawMarket": item["market"]
-            }
-            for item in candidate_markets[:top_k]
-        ]
-        print(f"[LLM_RANKING] Returning {len(fallback_markets)} markets (error fallback)")
-        print("="*80 + "\n")
-        return fallback_markets
+        print(f"[SEARCH_PLAN] Failed to parse LLM response ({e}), using fallback keywords")
+        plan = {
+            "query": _fallback_keyword_query(risk_description),
+            "start_date": "",
+            "end_date": "",
+        }
 
-def match_risk(risk_description: str, top_k: int = 5) -> List[Dict]:
+    query = plan.get("query") or _fallback_keyword_query(risk_description)
+    start_date = _parse_iso_date(plan.get("start_date"))
+    end_date = _parse_iso_date(plan.get("end_date"))
+
+    if not start_date:
+        start_date = _default_start_date()
+
+    return query.strip(), start_date, end_date
+
+
+def flatten_events_to_markets(events: List[Dict], start_date: datetime, end_date: Optional[datetime]) -> List[Dict]:
     """
-    Main matching function: finds top markets for a risk description.
-    Combines embedding similarity with LLM ranking.
+    Flatten events -> markets while attaching event metadata and applying date filters.
     """
-    print("\n" + "="*80)
-    print("[MATCH_RISK] ===== STARTING RISK MATCHING ======")
-    print(f"[MATCH_RISK] Risk description: {risk_description}")
-    print(f"[MATCH_RISK] Requested top {top_k} markets")
-    print("="*80)
-    
-    # Step 1: Find top markets by similarity
-    print("[MATCH_RISK] Step 1: Finding top markets by similarity...")
-    candidate_markets = find_top_markets_by_similarity(risk_description, top_n=15)
-    
-    if not candidate_markets:
-        print("[MATCH_RISK] ERROR: No candidate markets found from similarity search")
-        print("="*80 + "\n")
+    candidates = []
+    for event in events or []:
+        event_start = _parse_iso_date(event.get("startDate") or event.get("startTime"))
+        if start_date and event_start and event_start < start_date:
+            continue
+        if end_date and event_start and event_start > end_date:
+            continue
+
+        event_title = event.get("title") or event.get("ticker")
+        event_description = event.get("description") or event.get("subtitle") or ""
+
+        for market in event.get("markets", []) or []:
+            market_id = market.get("id") or market.get("market_id") or market.get("conditionId") or market.get("condition_id")
+            if not market_id:
+                continue
+
+            clob_token_ids = _normalize_clob_token_ids(market.get("clobTokenIds"), market.get("tokens"))
+            # If clobTokenIds missing, attempt from tokens
+            if not clob_token_ids and isinstance(market.get("tokens"), list):
+                clob_token_ids = _normalize_clob_token_ids(None, market.get("tokens"))
+
+            enriched = {
+                **market,
+                "marketId": str(market_id),
+                "event_title": event_title,
+                "event_description": event_description,
+                "event_start": _serialize_date(event_start),
+                "event_end": _serialize_date(_parse_iso_date(event.get("endDate"))),
+                "clobTokenIds": clob_token_ids,
+            }
+            candidates.append(enriched)
+    print(f"[FLATTEN] Prepared {len(candidates)} candidate markets after date filters")
+    return candidates
+
+
+def _build_candidate_prompt(risk_description: str, markets: List[Dict], top_n: int) -> str:
+    """
+    Build concise prompt for LLM market selection.
+    """
+    lines = []
+    for idx, m in enumerate(markets[:top_n], 1):
+        outcomes = m.get("outcomes") or m.get("shortOutcomes")
+        if isinstance(outcomes, list):
+            outcomes_text = ", ".join(outcomes[:4])
+        else:
+            outcomes_text = str(outcomes) if outcomes else "Yes/No"
+
+        lines.append(
+            f"""{idx}. market_id: {m.get('marketId')}
+   title: {m.get('question') or m.get('title', 'Unknown')}
+   event: {m.get('event_title') or 'N/A'}
+   start: {m.get('event_start') or m.get('startDateIso') or m.get('startDate')}
+   end: {m.get('endDateIso') or m.get('endDate')}
+   outcomes: {outcomes_text}
+   desc: {(m.get('description') or '')[:200]}"""
+        )
+
+    prompt = f"""
+You are selecting Polymarket markets to hedge a risk.
+Risk: {risk_description}
+
+Candidates:
+{chr(10).join(lines)}
+
+Return ONLY JSON array sorted best to worst.
+Format: [{{"market_id": "<id>", "yesOrNo": "yes" | "no"}}]
+- Include only markets that directly hedge the risk.
+- Choose the side that most benefits from the risk outcome (Yes/No).
+- Prefer clarity, relevance, and timely resolution.
+- Max {top_n} items.
+"""
+    return prompt
+
+
+def llm_select_markets(risk_description: str, markets: List[Dict], top_k: int = 5) -> List[Dict]:
+    """
+    Final LLM pass to pick relevant markets and the side (Yes/No).
+    """
+    if not markets:
         return []
-    
-    print(f"[MATCH_RISK] Found {len(candidate_markets)} candidate markets from similarity search")
-    
-    # Step 2: Use LLM to rank candidates
-    print("[MATCH_RISK] Step 2: Ranking candidates with LLM...")
-    ranked_markets = llm_rank_markets(risk_description, candidate_markets, top_k=top_k)
-    
-    print("[MATCH_RISK] ===== MATCHING COMPLETE =====")
-    print(f"[MATCH_RISK] Final result: {len(ranked_markets)} markets")
-    for i, market in enumerate(ranked_markets, 1):
-        print(f"  {i}. {market.get('title', 'Unknown')[:80]}...")
-    print("="*80 + "\n")
-    
-    return ranked_markets
+
+    prompt = _build_candidate_prompt(risk_description, markets, top_k * 3)
+
+    try:
+        raw = _chat_with_retry(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "Return only JSON. Do not include markdown. Make sure to return ONLY the json object, no ticks, labels that it is a json, etc."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.25,
+            max_tokens=300,
+        )
+        if raw is None:
+            raise RuntimeError("LLM returned no content after retries")
+        print(f"[FINAL_LLM] Raw response: {raw}")
+        selection = _parse_json_content(raw)
+        if not isinstance(selection, list):
+            raise ValueError("LLM output is not a list")
+    except Exception as e:
+        print(f"[FINAL_LLM] Failed to parse LLM output ({e})")
+        return []
+
+    # Map by marketId for quick lookup
+    market_map = {str(m.get("marketId")): m for m in markets}
+
+    results: List[Dict] = []
+    for item in selection:
+        try:
+            market_id = str(item.get("market_id") or item.get("marketId") or "")
+            side_raw = str(item.get("yesOrNo") or item.get("side") or "").lower()
+            if not market_id or side_raw not in {"yes", "no"}:
+                continue
+
+            market = market_map.get(market_id)
+            if not market:
+                continue
+
+            clob_ids = market.get("clobTokenIds") or []
+            if len(clob_ids) < 2:
+                print(f"[FINAL_LLM] Skipping {market_id}: missing clobTokenIds")
+                continue
+
+            side_index = 0 if side_raw == "yes" else 1
+            if side_index >= len(clob_ids):
+                continue
+
+            selected_token_id = clob_ids[side_index]
+            market_obj = {
+                "marketId": market_id,
+                "title": market.get("question") or market.get("title", "Unknown"),
+                "description": market.get("description", ""),
+                "category": market.get("category", ""),
+                "eventTitle": market.get("event_title"),
+                "eventDescription": market.get("event_description"),
+                "startDate": market.get("startDate") or market.get("startDateIso") or market.get("event_start"),
+                "endDate": market.get("endDate") or market.get("endDateIso") or market.get("event_end"),
+                "side": "Yes" if side_raw == "yes" else "No",
+                "clobTokenId": selected_token_id,
+                "clobTokenIds": clob_ids,
+                "outcomes": market.get("outcomes") or market.get("shortOutcomes"),
+                "outcomePrices": market.get("outcomePrices"),
+                "liquidity": market.get("liquidity"),
+                "volume": market.get("volume"),
+            }
+            results.append(market_obj)
+
+            if len(results) >= top_k:
+                break
+        except Exception as e:
+            print(f"[FINAL_LLM] Skipping market due to error: {e}")
+            continue
+
+    print(f"[FINAL_LLM] Returning {len(results)} markets")
+    return results
+
+
+def hedge_risk(risk_description: str, top_k: int = 5) -> List[Dict]:
+    """
+    New flow for hedging:
+    1) LLM creates search query + dates
+    2) Call Polymarket /search API
+    3) Flatten events->markets
+    4) Final LLM picks relevant markets & side
+    """
+    print("\n" + "=" * 80)
+    print("[HEDGE_RISK] ===== START =====")
+    print(f"[HEDGE_RISK] Risk: {risk_description[:200]}...")
+    query, start_date, end_date = build_search_plan(risk_description)
+    print(f"[HEDGE_RISK] Search query: {query}")
+    print(f"[HEDGE_RISK] Start date: {_serialize_date(start_date)} | End date: {_serialize_date(end_date)}")
+
+    search_results = search_events(query, limit_per_type=200)
+    events = search_results.get("events", []) if isinstance(search_results, dict) else []
+    print(f"[HEDGE_RISK] /search returned {len(events)} events")
+
+    candidates = flatten_events_to_markets(events, start_date, end_date)
+    if not candidates:
+        print("[HEDGE_RISK] No candidates after flattening")
+        return []
+
+    # If too many markets, use embedding similarity to trim to top 100
+    if len(candidates) > 100:
+        print(f"[HEDGE_RISK] {len(candidates)} candidates -> applying embedding similarity trim")
+        risk_emb = embed_text(risk_description, "risk_description")
+        if not risk_emb:
+            print("[HEDGE_RISK] Failed to embed risk description, skipping trim")
+        else:
+            scored = []
+            for idx, m in enumerate(candidates):
+                text = _build_market_text(m)
+                if not text:
+                    continue
+                m_emb = embed_text(text, f"market_{idx}")
+                if not m_emb:
+                    continue
+                sim = cosine_similarity(risk_emb, m_emb)
+                scored.append((sim, m))
+            scored.sort(key=lambda x: x[0], reverse=True)
+            kept = [m for _, m in scored[:100]]
+            print(f"[HEDGE_RISK] Trimmed to top {len(kept)} by similarity")
+            candidates = kept if kept else candidates
+
+    ranked = llm_select_markets(risk_description, candidates, top_k=top_k)
+    print("[HEDGE_RISK] ===== DONE =====\n")
+    return ranked
+
+
+# Backward-compatible alias
+def match_risk(risk_description: str, top_k: int = 5) -> List[Dict]:
+    return hedge_risk(risk_description, top_k=top_k)
 
