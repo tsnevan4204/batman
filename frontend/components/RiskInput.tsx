@@ -1,14 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import axios from 'axios'
+import { motion } from 'framer-motion'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 export interface ExpenseItem {
   name: string
   amount: string
-  sensitivity: string
 }
 
 export interface RiskDetails {
@@ -21,19 +21,58 @@ interface RiskInputProps {
   onMatch: (description: string, markets: any[], details: RiskDetails) => void
 }
 
+const TypewriterPlaceholder = ({ text, isVisible }: { text: string, isVisible: boolean }) => {
+  const [displayedText, setDisplayedText] = useState('')
+  const [isTyping, setIsTyping] = useState(false)
+
+  useEffect(() => {
+    if (!isVisible) {
+      setDisplayedText('')
+      setIsTyping(false)
+      return
+    }
+
+    setIsTyping(true)
+    let currentIndex = 0
+    const interval = setInterval(() => {
+      if (currentIndex <= text.length) {
+        setDisplayedText(text.slice(0, currentIndex))
+        currentIndex++
+      } else {
+        clearInterval(interval)
+        setIsTyping(false)
+      }
+    }, 30) // Speed of typing
+
+    return () => clearInterval(interval)
+  }, [text, isVisible])
+
+  if (!isVisible && !displayedText) return null
+
+  return (
+    <div className="absolute top-0 left-0 w-full h-full p-4 pointer-events-none text-gray-400/80 select-none z-20">
+      {displayedText}
+      {isTyping && <span className="animate-pulse text-hedge-green">|</span>}
+    </div>
+  )
+}
+
 export default function RiskInput({ onMatch }: RiskInputProps) {
   const [businessOverview, setBusinessOverview] = useState('')
   const [specificRisk, setSpecificRisk] = useState('')
   const [expenses, setExpenses] = useState<ExpenseItem[]>([
-    { name: '', amount: '', sensitivity: '' }
+    { name: '', amount: '' }
   ])
   const [showExpenses, setShowExpenses] = useState(false)
   
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Focus states for placeholders
+  const [activeField, setActiveField] = useState<string | null>(null)
+
   const addExpense = () => {
-    setExpenses([...expenses, { name: '', amount: '', sensitivity: '' }])
+    setExpenses([...expenses, { name: '', amount: '' }])
   }
 
   const updateExpense = (index: number, field: keyof ExpenseItem, value: string) => {
@@ -66,7 +105,7 @@ export default function RiskInput({ onMatch }: RiskInputProps) {
     if (validExpenses.length > 0) {
       compositeDescription += `\n\nKey Exposures:`
       validExpenses.forEach(exp => {
-        compositeDescription += `\n- ${exp.name}: $${exp.amount}/mo (Sensitivity: ${exp.sensitivity}%)`
+        compositeDescription += `\n- ${exp.name}: $${exp.amount}/mo`
       })
     }
 
@@ -98,18 +137,27 @@ export default function RiskInput({ onMatch }: RiskInputProps) {
         {/* Background Decoration */}
         <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-green-50 to-blue-50 rounded-full blur-3xl opacity-50 -z-10 pointer-events-none" />
         
-        <div className="mb-8">
+        <motion.div 
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-8"
+        >
           <h2 className="text-2xl font-bold text-gray-900 mb-2">
             Business Profile
           </h2>
           <p className="text-gray-600">
             Describe your business context and specific risks to find tailored hedge markets.
           </p>
-        </div>
+        </motion.div>
 
         <form onSubmit={handleSubmit} className="space-y-8">
           {/* Section A: Business Overview */}
-          <div className="space-y-3">
+          <motion.div 
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.1 }}
+            className="space-y-3"
+          >
             <label className="block text-sm font-semibold text-gray-900 uppercase tracking-wider">
               Business Overview <span className="text-hedge-green">*</span>
             </label>
@@ -118,15 +166,25 @@ export default function RiskInput({ onMatch }: RiskInputProps) {
                 type="text"
                 value={businessOverview}
                 onChange={(e) => setBusinessOverview(e.target.value)}
-                placeholder="e.g. We operate an e-commerce business heavily dependent on international shipping."
-                className="w-full p-4 bg-white/50 hover:bg-white text-gray-900 rounded-lg border border-gray-200 group-hover:border-hedge-green/50 focus:border-hedge-green focus:ring-4 focus:ring-hedge-green/10 focus:outline-none transition-all placeholder:text-gray-400 shadow-sm"
+                onFocus={() => setActiveField('business')}
+                onBlur={() => setActiveField(null)}
+                className="w-full p-4 bg-white/50 hover:bg-white text-gray-900 rounded-lg border border-gray-200 group-hover:border-hedge-green/50 focus:border-hedge-green focus:ring-4 focus:ring-hedge-green/10 focus:outline-none transition-all shadow-sm relative z-10"
                 disabled={isLoading}
               />
+              <TypewriterPlaceholder 
+                text="e.g. We operate an e-commerce business heavily dependent on international shipping." 
+                isVisible={businessOverview === ''} 
+              />
             </div>
-          </div>
+          </motion.div>
 
           {/* Section B: Specific Risk */}
-          <div className="space-y-3">
+          <motion.div 
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.2 }}
+            className="space-y-3"
+          >
             <label className="block text-sm font-semibold text-gray-900 uppercase tracking-wider">
               Specific Risk Description <span className="text-hedge-green">*</span>
             </label>
@@ -134,15 +192,25 @@ export default function RiskInput({ onMatch }: RiskInputProps) {
               <textarea
                 value={specificRisk}
                 onChange={(e) => setSpecificRisk(e.target.value)}
-                placeholder="e.g. If shipping costs increase by more than 20% next quarter, margins decline significantly."
-                className="w-full h-32 p-4 bg-white/50 hover:bg-white text-gray-900 rounded-lg border border-gray-200 group-hover:border-hedge-green/50 focus:border-hedge-green focus:ring-4 focus:ring-hedge-green/10 focus:outline-none transition-all resize-none placeholder:text-gray-400 shadow-sm"
+                onFocus={() => setActiveField('risk')}
+                onBlur={() => setActiveField(null)}
+                className="w-full h-32 p-4 bg-white/50 hover:bg-white text-gray-900 rounded-lg border border-gray-200 group-hover:border-hedge-green/50 focus:border-hedge-green focus:ring-4 focus:ring-hedge-green/10 focus:outline-none transition-all resize-none shadow-sm relative z-10"
                 disabled={isLoading}
               />
+               <TypewriterPlaceholder 
+                text="e.g. If shipping costs increase by more than 20% next quarter, margins decline significantly." 
+                isVisible={specificRisk === ''} 
+              />
             </div>
-          </div>
+          </motion.div>
 
           {/* Section C: Optional Metrics */}
-          <div className="border border-gray-200/60 rounded-lg overflow-hidden bg-white/30">
+          <motion.div 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="border border-gray-200/60 rounded-lg overflow-hidden bg-white/30"
+          >
             <button
               type="button"
               onClick={() => setShowExpenses(!showExpenses)}
@@ -160,15 +228,14 @@ export default function RiskInput({ onMatch }: RiskInputProps) {
             {showExpenses && (
               <div className="p-4 bg-white/50 border-t border-gray-100 space-y-4 animate-in slide-in-from-top-2 duration-200">
                 <div className="grid grid-cols-12 gap-4 mb-2 text-xs font-semibold text-gray-500 uppercase">
-                  <div className="col-span-5">Expense Name</div>
-                  <div className="col-span-3">Monthly Spend</div>
-                  <div className="col-span-3">Sensitivity (%)</div>
+                  <div className="col-span-7">Expense Name</div>
+                  <div className="col-span-4">Monthly Spend</div>
                   <div className="col-span-1"></div>
                 </div>
                 
                 {expenses.map((expense, idx) => (
                   <div key={idx} className="grid grid-cols-12 gap-4 items-center">
-                    <div className="col-span-5">
+                    <div className="col-span-7">
                       <input
                         type="text"
                         value={expense.name}
@@ -177,7 +244,7 @@ export default function RiskInput({ onMatch }: RiskInputProps) {
                         className="w-full p-2 bg-white border border-gray-200 rounded focus:border-hedge-green focus:outline-none text-sm text-gray-900 shadow-sm"
                       />
                     </div>
-                    <div className="col-span-3 relative">
+                    <div className="col-span-4 relative">
                       <span className="absolute left-2 top-2 text-gray-400 text-sm">$</span>
                       <input
                         type="number"
@@ -186,16 +253,6 @@ export default function RiskInput({ onMatch }: RiskInputProps) {
                         placeholder="0"
                         className="w-full p-2 pl-5 bg-white border border-gray-200 rounded focus:border-hedge-green focus:outline-none text-sm text-gray-900 shadow-sm"
                       />
-                    </div>
-                    <div className="col-span-3 relative">
-                      <input
-                        type="number"
-                        value={expense.sensitivity}
-                        onChange={(e) => updateExpense(idx, 'sensitivity', e.target.value)}
-                        placeholder="20"
-                        className="w-full p-2 pr-6 bg-white border border-gray-200 rounded focus:border-hedge-green focus:outline-none text-sm text-gray-900 shadow-sm"
-                      />
-                      <span className="absolute right-2 top-2 text-gray-400 text-sm">%</span>
                     </div>
                     <div className="col-span-1 text-center">
                       {expenses.length > 1 && (
@@ -220,7 +277,7 @@ export default function RiskInput({ onMatch }: RiskInputProps) {
                 </button>
               </div>
             )}
-          </div>
+          </motion.div>
 
           {error && (
             <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm animate-pulse">
@@ -228,13 +285,15 @@ export default function RiskInput({ onMatch }: RiskInputProps) {
             </div>
           )}
 
-          <button
+          <motion.button
+            whileHover={{ scale: 1.01 }}
+            whileTap={{ scale: 0.99 }}
             type="submit"
             disabled={isLoading}
-            className="w-full py-4 bg-gradient-to-r from-hedge-green to-emerald-600 hover:to-emerald-700 text-white font-bold rounded-lg transition-all shadow-lg shadow-green-500/20 hover:shadow-green-500/30 transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+            className="w-full py-4 bg-gradient-to-r from-hedge-green to-emerald-600 hover:to-emerald-700 text-white font-bold rounded-lg transition-all shadow-lg shadow-green-500/20 hover:shadow-green-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isLoading ? 'Processing...' : 'Identify Hedge Opportunities'}
-          </button>
+          </motion.button>
         </form>
       </div>
     </div>
