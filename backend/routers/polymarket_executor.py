@@ -15,6 +15,7 @@ class ExecuteOrderRequest(BaseModel):
     ttlSeconds: int | None = None
     maxSlippageBps: int | None = None
     dryRun: bool | None = None
+    tokenId: str | None = None
 
 
 @router.post("/execute-order")
@@ -33,6 +34,7 @@ async def execute_order_endpoint(req: ExecuteOrderRequest):
             ttl_seconds=req.ttlSeconds,
             max_slippage_bps=req.maxSlippageBps,
             dry_run=req.dryRun if req.dryRun is not None else True,
+            token_id=req.tokenId,
         )
         return result
     except Exception as e:
