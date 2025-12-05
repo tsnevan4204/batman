@@ -5,6 +5,8 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
+import numpy as np
+
 from openai import OpenAI
 
 from services.polymarket import search_events
@@ -61,7 +63,7 @@ def get_openai_client() -> OpenAI:
 
 def _chat_with_retry(
     messages: List[Dict[str, str]],
-    model: str = "gpt-4o",
+    model: str = "gpt-4o-mini",
     temperature: float = 0.2,
     max_tokens: int = 200,
     attempts: int = 3,
@@ -128,6 +130,29 @@ def _parse_json_content(raw: str) -> Optional[dict]:
     return None
 
 
+def embed_text(text: str, debug_label: str = "text") -> Optional[List[float]]:
+    """Generate embedding for text."""
+    try:
+        client = get_openai_client()
+        resp = client.embeddings.create(
+            model="text-embedding-3-small",
+            input=text,
+        )
+        return resp.data[0].embedding
+    except Exception as e:
+        print(f"[EMBED] failed for {debug_label}: {e}")
+        return None
+
+
+def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
+    v1 = np.array(vec1)
+    v2 = np.array(vec2)
+    denom = np.linalg.norm(v1) * np.linalg.norm(v2)
+    if denom == 0:
+        return 0.0
+    return float(np.dot(v1, v2) / denom)
+
+
 def _default_start_date() -> datetime:
     """
     Default start date: beginning of today (UTC) minus 12 hours.
@@ -150,6 +175,26 @@ def _serialize_date(dt: Optional[datetime]) -> Optional[str]:
     if not dt:
         return None
     return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _build_market_text(market: Dict) -> str:
+    """
+    Concise text for embeddings: question/title/description + event info.
+    """
+    parts = []
+    q = market.get("question") or market.get("title")
+    if q:
+        parts.append(q)
+    desc = market.get("description")
+    if desc:
+        parts.append(desc)
+    ev_title = market.get("event_title")
+    if ev_title:
+        parts.append(f"Event: {ev_title}")
+    ev_desc = market.get("event_description")
+    if ev_desc:
+        parts.append(ev_desc)
+    return " ".join(parts)
 
 
 def _normalize_clob_token_ids(raw_ids, tokens_hint=None) -> List[str]:
@@ -220,11 +265,11 @@ Risk description:
 """
     try:
         content = _chat_with_retry(
-            model="gpt-4o",
+            model="gpt-4o-mini",
             messages=[
                 {
                     "role": "system",
-                    "content": "Return only valid JSON with keys: query, start_date, end_date.",
+                    "content": "Return only valid JSON with keys: query, start_date, end_date. Make sure to return ONLY the json object, no ticks, labels that it is a json, etc.",
                 },
                 {"role": "user", "content": prompt},
             ],
@@ -346,7 +391,7 @@ def llm_select_markets(risk_description: str, markets: List[Dict], top_k: int = 
         raw = _chat_with_retry(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": "Return only JSON. Do not include markdown."},
+                {"role": "system", "content": "Return only JSON. Do not include markdown. Make sure to return ONLY the json object, no ticks, labels that it is a json, etc."},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.25,
@@ -439,6 +484,28 @@ def hedge_risk(risk_description: str, top_k: int = 5) -> List[Dict]:
     if not candidates:
         print("[HEDGE_RISK] No candidates after flattening")
         return []
+
+    # If too many markets, use embedding similarity to trim to top 100
+    if len(candidates) > 100:
+        print(f"[HEDGE_RISK] {len(candidates)} candidates -> applying embedding similarity trim")
+        risk_emb = embed_text(risk_description, "risk_description")
+        if not risk_emb:
+            print("[HEDGE_RISK] Failed to embed risk description, skipping trim")
+        else:
+            scored = []
+            for idx, m in enumerate(candidates):
+                text = _build_market_text(m)
+                if not text:
+                    continue
+                m_emb = embed_text(text, f"market_{idx}")
+                if not m_emb:
+                    continue
+                sim = cosine_similarity(risk_emb, m_emb)
+                scored.append((sim, m))
+            scored.sort(key=lambda x: x[0], reverse=True)
+            kept = [m for _, m in scored[:100]]
+            print(f"[HEDGE_RISK] Trimmed to top {len(kept)} by similarity")
+            candidates = kept if kept else candidates
 
     ranked = llm_select_markets(risk_description, candidates, top_k=top_k)
     print("[HEDGE_RISK] ===== DONE =====\n")
