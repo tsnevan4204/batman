@@ -80,7 +80,7 @@ contract HedgeReceiptNFT is ERC721URIStorage, Ownable {
         uint256 settlementPrice,
         uint256 settlementTimestamp
     ) external onlyOwner {
-        require(_exists(tokenId), "Token does not exist");
+        require(_ownerOf(tokenId) != address(0), "Token does not exist");
         ReceiptMetadata storage data = receiptData[tokenId];
         data.resolved = true;
         data.resolvedOutcome = resolvedOutcome;

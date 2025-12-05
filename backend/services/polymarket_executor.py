@@ -17,6 +17,7 @@ DEFAULT_TTL = int(os.getenv("ORDER_TTL_SECONDS", "600"))
 DEFAULT_SLIPPAGE_BPS = int(os.getenv("MAX_SLIPPAGE_BPS", "100"))
 DEFAULT_MAX_ORDER_USDC = float(os.getenv("MAX_ORDER_USDC", "500"))
 CHAIN_ID = int(os.getenv("POLYMARKET_CHAIN_ID", "137"))  # default Polygon; set 8453 for Base
+ALLOW_MISSING_BOOK = os.getenv("ALLOW_MISSING_BOOK", "false").lower() == "true"
 
 
 def fail(msg: str):
@@ -326,6 +327,7 @@ def execute_order(
     ttl_seconds: Optional[int] = None,
     max_slippage_bps: Optional[int] = None,
     dry_run: bool = True,
+    token_id: Optional[str] = None,
 ) -> dict:
     """
     Server-side execution path:
@@ -368,18 +370,33 @@ def execute_order(
     maker = account.address
     print(f"[polymarket_executor] maker address={maker}")
 
-    # 1) conditionId (market_id) -> token_id for selected outcome + all outcomes
-    token_id, outcomes, tokens, market_id_for_book = get_token_info(clob_url, market_id, outcome_index)
+    # 1) Resolve token_id
+    if token_id:
+        print(f"[polymarket_executor] using provided token_id={token_id}")
+        market_id_for_book = market_id
+        outcomes = []
+        tokens = None
+    else:
+        token_id, outcomes, tokens, market_id_for_book = get_token_info(clob_url, market_id, outcome_index)
 
     # 2) orderbook for that token (try alternates if book missing)
-    bids, asks = get_orderbook(
-        clob_url,
-        token_id,
-        market_id,
-        tokens=tokens,
-        desired_outcome_index=outcome_index,
-        market_id_for_book=market_id_for_book,
-    )
+    try:
+        bids, asks = get_orderbook(
+            clob_url,
+            token_id,
+            market_id,
+            tokens=tokens,
+            desired_outcome_index=outcome_index,
+            market_id_for_book=market_id_for_book,
+        )
+    except Exception as e:
+        if dry_run and ALLOW_MISSING_BOOK:
+            print(
+                f"[polymarket_executor] orderbook unavailable, but ALLOW_MISSING_BOOK=true & dry_run -> using empty book; error: {e}"
+            )
+            bids, asks = [], []
+        else:
+            raise
     print(
         f"[polymarket_executor] orderbook top bid={bids[0] if bids else None} "
         f"top ask={asks[0] if asks else None}"
@@ -405,6 +422,7 @@ def execute_order(
     return {
         "maker": maker,
         "marketId": market_id,
+        "tokenId": token_id,
         "outcomeIndex": outcome_index,
         "side": side,
         "size": size,

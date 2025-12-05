@@ -6,9 +6,10 @@ async function main() {
 
   // Required USDC token address for HedgedEscrow
   // Defaults to Base mainnet USDC: 0x833589fCD6eDb6E08f4c7C32D4f71b54B268B0ed
-  const usdcToken =
+  const usdcTokenRaw =
     process.env.USDC_TOKEN ||
     "0x833589fCD6eDb6E08f4c7C32D4f71b54B268B0ed";
+  const usdcTokenChecksum = hre.ethers.getAddress(usdcTokenRaw.trim().toLowerCase());
 
   // Deploy HedgeReceiptNFT first
   const HedgeReceiptNFT = await hre.ethers.getContractFactory("HedgeReceiptNFT");
@@ -33,7 +34,7 @@ async function main() {
 
   // Deploy HedgedEscrow (requires token address)
   const HedgedEscrow = await hre.ethers.getContractFactory("HedgedEscrow");
-  const escrow = await HedgedEscrow.deploy(usdcToken, deployer.address);
+  const escrow = await HedgedEscrow.deploy(usdcTokenChecksum, deployer.address);
   await escrow.waitForDeployment();
   const escrowAddress = await escrow.getAddress();
   console.log("HedgedEscrow deployed to:", escrowAddress);
